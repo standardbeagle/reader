@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
@@ -24,8 +24,23 @@ export function createSqliteStorage(path: string): Storage {
   `);
 
   function migrate(d: Database.Database) {
+    d.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    )`);
     const dir = join(import.meta.dirname, "migrations");
-    d.exec(readFileSync(join(dir, "0001_init.sql"), "utf8"));
+    const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+    const applied = d.prepare("SELECT name FROM schema_migrations");
+    const record = d.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)");
+    const done = new Set((applied.all() as { name: string }[]).map((r) => r.name));
+    for (const file of files) {
+      if (done.has(file)) continue;
+      const sql = readFileSync(join(dir, file), "utf8");
+      d.transaction(() => {
+        d.exec(sql);
+        record.run(file, new Date().toISOString());
+      })();
+    }
   }
 
   function rowToFeed(r: Record<string, unknown>): Feed {

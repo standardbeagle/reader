@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createSqliteStorage } from "../src/storage/sqlite.js";
 import type { Storage } from "../src/storage/types.js";
 
@@ -122,6 +125,24 @@ describe("sqlite storage", () => {
     ], identity);
     storage.markAllRead(userId, feed.id);
     expect(storage.unreadCounts(userId)[feed.id]).toBeUndefined();
+  });
+
+  it("reopens an existing database without re-running migrations", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reader-storage-"));
+    const dbPath = join(dir, "test.db");
+    try {
+      const first = createSqliteStorage(dbPath);
+      const uid = first.getOrCreateLocalUser().id;
+      const feed = first.createFeed(uid, { url: "https://re.example.com/feed.xml", title: "Re", siteUrl: null });
+      first.close();
+
+      const second = createSqliteStorage(dbPath);
+      const feeds = second.listFeeds(uid);
+      second.close();
+      expect(feeds.map((f) => f.id)).toEqual([feed.id]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("deleteFeed cascades articles", () => {
