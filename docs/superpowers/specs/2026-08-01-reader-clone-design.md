@@ -153,5 +153,5 @@ Each independently shippable:
 1. `core` + storage + poller + minimal API + minimal list/reader UI (Electron runs it)
 2. Folders, starring, mark-read-on-scroll, keyboard nav, settings
 3. Search (FTS), full-text extraction toggle
-4. OPML import/export, hosted mode (auth, PG adapter), deployment config
+4. OPML import/export, hosted mode (auth, PG adapter), deployment config — **blocker:** SSRF guard on feed fetching before any hosted deployment (subscribe accepts arbitrary URLs; resolve host and reject private/link-local/loopback ranges, re-validate after redirects)
 5. Google Reader API compat, offline service worker, polish
