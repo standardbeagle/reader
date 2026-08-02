@@ -15,6 +15,17 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   if (opts.poller !== false) poller.start();
 
   const app = Fastify({ logger: true });
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body, done) => {
+    const text = (body as string).trim();
+    if (text === "") return done(null, undefined);
+    try {
+      done(null, JSON.parse(text));
+    } catch {
+      const err = new Error("invalid JSON body") as Error & { statusCode: number };
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
   registerRoutes(app, storage, poller);
   const webDist = process.env.READER_WEB_DIST;
   if (webDist) {

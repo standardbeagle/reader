@@ -10,7 +10,7 @@ export interface Article {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
-    headers: { "content-type": "application/json" },
+    ...(init?.body !== undefined ? { headers: { "content-type": "application/json" } } : {}),
     ...init,
   });
   if (!res.ok) {

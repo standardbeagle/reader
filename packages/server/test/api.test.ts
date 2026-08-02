@@ -86,6 +86,19 @@ describe("api", () => {
     expect(list.json().feeds[0].unreadCount).toBe(0);
   });
 
+  it("accepts empty body with json content-type on body-less POST", async () => {
+    const created = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml` } });
+    const feedId = created.json().id;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/feeds/${feedId}/mark-all-read`,
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.statusCode).toBe(204);
+    const list = await app.inject({ method: "GET", url: "/api/v1/feeds" });
+    expect(list.json().feeds[0].unreadCount).toBe(0);
+  });
+
   it("unsubscribes and cascades", async () => {
     const created = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml` } });
     const feedId = created.json().id;
