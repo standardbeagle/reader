@@ -124,16 +124,19 @@ export function createSqliteStorage(path: string): Storage {
         ON CONFLICT (feed_id, guid) DO NOTHING
       `);
       const findUser = db.prepare("SELECT user_id FROM feeds WHERE id = ?");
-      const userId = (findUser.get(feedId) as { user_id: string }).user_id;
+      const feedRow = findUser.get(feedId) as { user_id: string } | undefined;
+      if (!feedRow) throw new Error("feed not found: " + feedId);
+      const userId = feedRow.user_id;
       const inserted: Article[] = [];
       const tx = db.transaction(() => {
         for (const a of articles) {
           const id = randomUUID();
           const now = new Date().toISOString();
+          const contentHtml = a.contentHtml ? sanitize(a.contentHtml) : null;
           const res = insert.run(
             id, feedId, a.guid, a.url, a.title, a.author,
             a.publishedAt ? a.publishedAt.toISOString() : null,
-            a.contentHtml ? sanitize(a.contentHtml) : null,
+            contentHtml,
             a.summary, now,
           );
           if (res.changes > 0) {
@@ -141,7 +144,7 @@ export function createSqliteStorage(path: string): Storage {
             inserted.push({
               id, feedId, guid: a.guid, url: a.url, title: a.title, author: a.author,
               publishedAt: a.publishedAt ? a.publishedAt.toISOString() : null,
-              contentHtml: a.contentHtml, summary: a.summary, fetchedAt: now,
+              contentHtml, summary: a.summary, fetchedAt: now,
             });
           }
         }
@@ -155,7 +158,7 @@ export function createSqliteStorage(path: string): Storage {
       const params: unknown[] = [q.userId];
       if (q.feedId) { clauses.push("a.feed_id = ?"); params.push(q.feedId); }
       if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
-      if (q.before) { clauses.push("(a.published_at IS NULL OR a.published_at < ?)"); params.push(q.before); }
+      if (q.before) { clauses.push("a.published_at < ?"); params.push(q.before); }
       params.push(q.limit);
       const rows = db.prepare(`
         SELECT a.*, ua.read_at
@@ -163,7 +166,7 @@ export function createSqliteStorage(path: string): Storage {
         JOIN feeds f ON f.id = a.feed_id
         LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
         WHERE ${clauses.join(" AND ")}
-        ORDER BY a.published_at IS NULL, a.published_at DESC, a.fetched_at DESC
+        ORDER BY a.published_at IS NULL, a.published_at DESC, a.fetched_at DESC, a.id
         LIMIT ?
       `).all(q.userId, ...params) as Record<string, unknown>[];
       return rows.map((r) => ({ ...rowToArticle(r), readAt: (r.read_at as string) ?? null }));

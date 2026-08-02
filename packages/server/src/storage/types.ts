@@ -54,7 +54,7 @@ export interface FetchState {
 }
 
 export interface Storage {
-  close(): void;
+  close(): void | Promise<void>;
   getOrCreateLocalUser(): User;
   createFeed(userId: string, input: { url: string; title: string; siteUrl: string | null }): Feed;
   listFeeds(userId: string): Feed[];
