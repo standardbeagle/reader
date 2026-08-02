@@ -25,4 +25,21 @@ describe("sanitizeHtml", () => {
     expect(out).toContain('rel="noopener');
     expect(out).toContain('target="_blank"');
   });
+
+  it("adds loading=lazy and referrerpolicy=no-referrer to images", () => {
+    const out = sanitizeHtml('<img src="https://x.com/a.png">');
+    expect(out).toContain('loading="lazy"');
+    expect(out).toContain('referrerpolicy="no-referrer"');
+  });
+
+  it("excludes dangerous tags (style, iframe, form, svg, script)", () => {
+    const out = sanitizeHtml(
+      '<style>body{display:none}</style><iframe src="https://evil.example"></iframe><form><input></form><svg><script>alert(1)</script></svg>'
+    );
+    expect(out).not.toContain("<style");
+    expect(out).not.toContain("<iframe");
+    expect(out).not.toContain("<form");
+    expect(out).not.toContain("<svg");
+    expect(out).not.toContain("<script");
+  });
 });
