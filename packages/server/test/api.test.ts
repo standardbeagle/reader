@@ -49,6 +49,9 @@ describe("api", () => {
     });
     expect(res.statusCode).toBe(422);
     expect(res.json().error.code).toBe("feed_fetch_failed");
+
+    const list = await app.inject({ method: "GET", url: "/api/v1/feeds" });
+    expect(list.json().feeds).toHaveLength(0);
   });
 
   it("rejects duplicate subscription with 409", async () => {

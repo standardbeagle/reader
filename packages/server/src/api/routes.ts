@@ -49,7 +49,7 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
   });
 
   app.get<{ Querystring: ArticleQuery }>("/api/v1/articles", async (req) => {
-    const limit = Math.min(Number(req.query.limit ?? 50) || 50, 200);
+    const limit = Math.max(1, Math.min(Number(req.query.limit ?? 50) || 50, 200));
     const articles = storage.listArticles({
       userId: userId(),
       ...(req.query.feed_id ? { feedId: req.query.feed_id } : {}),
