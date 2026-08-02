@@ -1,0 +1,15 @@
+{
+  "name": "reader",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "dev:server": "pnpm --filter @reader/server dev",
+    "dev:web": "pnpm --filter @reader/web dev",
+    "dev:desktop": "pnpm --filter @reader/desktop dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
