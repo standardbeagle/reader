@@ -20,6 +20,10 @@ Core features (v1):
 
 Non-goals (v1): social/sharing features, recommendations, mobile apps, Electron auto-updater.
 
+## 1a. Future direction: agents as publishers (recorded 2026-08-01)
+
+The reader is a natural substrate for chunked agent-driven updates — daily research digests, long-running refactoring progress, scheduled task output. An agent that can write an Atom file to a URL is already subscribable with the architecture as designed. A future milestone (v1.x) can make this first-class with a minimal delta: agents write Atom files to a watched directory (or POST to a local publish endpoint), and the reader auto-subscribes. No design changes required now; noted so later plans keep the door open (e.g., don't hardcode assumptions that all feeds are remote HTTP).
+
 ## 2. Architecture
 
 Approach: **monorepo, single Node/TS backend, pluggable storage**.
