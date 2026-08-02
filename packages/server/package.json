@@ -6,7 +6,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run --passWithNoTests",
     "pretest": "pnpm --filter @reader/core build",
-    "build": "tsc -b tsconfig.json"
+    "build": "tsc -b tsconfig.json && cp -r src/storage/migrations dist/src/storage/"
   },
   "dependencies": {
     "@reader/core": "workspace:*",
