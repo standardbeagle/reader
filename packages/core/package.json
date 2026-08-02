@@ -2,12 +2,25 @@
   "name": "@reader/core",
   "version": "0.1.0",
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "scripts": { "test": "vitest run --passWithNoTests", "build": "tsc -p tsconfig.json" },
-  "dependencies": {
-    "rss-parser": "^3.13.0",
-    "dompurify": "^3.2.4",
-    "jsdom": "^26.0.0"
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
-  "devDependencies": { "typescript": "^5.9.0", "vitest": "^3.0.0", "@types/node": "^22.0.0" }
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.4",
+    "jsdom": "^26.0.0",
+    "rss-parser": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
 }
