@@ -7,7 +7,6 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "declaration": true,
-    "outDir": "dist",
     "skipLibCheck": true
   }
 }

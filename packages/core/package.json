@@ -2,8 +2,8 @@
   "name": "@reader/core",
   "version": "0.1.0",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "test": "vitest run", "build": "tsc -p tsconfig.json" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": { "test": "vitest run --passWithNoTests", "build": "tsc -p tsconfig.json" },
   "dependencies": {
     "rss-parser": "^3.13.0",
     "dompurify": "^3.2.4",

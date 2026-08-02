@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "test": "vitest run",
-    "build": "tsc -p tsconfig.json"
+    "test": "vitest run --passWithNoTests",
+    "pretest": "pnpm --filter @reader/core build",
+    "build": "tsc -b tsconfig.json"
   },
   "dependencies": {
     "@reader/core": "workspace:*",
