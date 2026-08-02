@@ -18,6 +18,7 @@ describe("parseFeed", () => {
     expect(first.url).toBe("https://example.com/first");
     expect(first.publishedAt?.toISOString()).toBe("2026-07-01T12:00:00.000Z");
     expect(first.contentHtml).toContain("<p>Hello world</p>");
+    expect(first.contentHtml).toContain("<p>Full body</p>");
   });
 
   it("parses Atom feeds", async () => {
@@ -38,5 +39,20 @@ describe("parseFeed", () => {
     const feed = await parseFeed(fixture("no-guid.xml"));
     expect(feed.articles[0]!.publishedAt).toBeNull();
     expect(feed.articles[0]!.author).toBeNull();
+  });
+
+  it("rejects on malformed XML", async () => {
+    await expect(parseFeed("<rss><channel><item>")).rejects.toThrow();
+  });
+
+  it("synthesizes distinct guids for guid-less items sharing a link", async () => {
+    const xml = `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>t</title><link>https://x.example</link>
+<item><title>Alpha</title><link>https://x.example/same</link></item>
+<item><title>Beta</title><link>https://x.example/same</link></item>
+</channel></rss>`;
+    const feed = await parseFeed(xml);
+    expect(feed.articles).toHaveLength(2);
+    expect(feed.articles[0]!.guid).not.toBe(feed.articles[1]!.guid);
   });
 });
