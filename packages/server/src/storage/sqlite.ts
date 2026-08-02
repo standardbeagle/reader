@@ -29,7 +29,12 @@ export function createSqliteStorage(path: string): Storage {
       applied_at TEXT NOT NULL
     )`);
     const dir = join(import.meta.dirname, "migrations");
-    const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+    const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort((a, b) => {
+      const na = parseInt(a, 10);
+      const nb = parseInt(b, 10);
+      if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
     const applied = d.prepare("SELECT name FROM schema_migrations");
     const record = d.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)");
     const done = new Set((applied.all() as { name: string }[]).map((r) => r.name));

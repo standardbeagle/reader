@@ -25,12 +25,22 @@ function startServer(): Promise<number> {
       stdio: ["ignore", "pipe", "inherit", "ipc"],
     });
     const rl = createInterface({ input: server.stdout! });
-    const timeout = setTimeout(() => reject(new Error("server start timeout")), 15_000);
+    let killed = false;
+    const killServer = () => {
+      if (!killed) { killed = true; server!.kill(); }
+    };
+    const timeout = setTimeout(() => {
+      killServer();
+      reject(new Error("server start timeout"));
+    }, 15_000);
     rl.on("line", (line) => {
       const m = /^READER_PORT=(\d+)$/.exec(line.trim());
       if (m) { clearTimeout(timeout); resolve(Number(m[1])); }
     });
-    server.on("exit", (code) => reject(new Error(`server exited early: ${code}`)));
+    server.on("exit", (code) => {
+      killServer();
+      reject(new Error(`server exited early: ${code}`));
+    });
   });
 }
 

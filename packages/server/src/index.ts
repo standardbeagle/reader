@@ -1,5 +1,8 @@
 import { createServer } from "./api/server.js";
 
+// Forked by Electron: self-exit if the parent's IPC channel goes away (e.g. SIGKILL).
+if (process.send) process.on("disconnect", () => process.exit(0));
+
 const dbPath = process.env.READER_DB ?? "reader.db";
 const app = await createServer({ dbPath });
 

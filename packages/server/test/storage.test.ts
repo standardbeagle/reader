@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { createSqliteStorage } from "../src/storage/sqlite.js";
 import type { Storage } from "../src/storage/types.js";
 
@@ -140,6 +141,13 @@ describe("sqlite storage", () => {
       const feeds = second.listFeeds(uid);
       second.close();
       expect(feeds.map((f) => f.id)).toEqual([feed.id]);
+
+      const raw = new Database(dbPath);
+      const { n } = raw.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get() as { n: number };
+      raw.close();
+      const migrationsDir = join(import.meta.dirname, "../src/storage/migrations");
+      const migrationCount = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).length;
+      expect(n).toBe(migrationCount);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
