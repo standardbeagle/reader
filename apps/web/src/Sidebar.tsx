@@ -24,8 +24,8 @@ export function Sidebar(props: { selectedFeedId: string | null; onSelectFeed: (i
   return (
     <nav className="sidebar">
       <h1>Reader</h1>
-      <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) sub.mutate(url.trim()); }}>
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Add feed URL" />
+      <form onSubmit={(e) => { e.preventDefault(); if (url.trim() && !sub.isPending) sub.mutate(url.trim()); }}>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Add feed URL" aria-label="Feed URL" />
         <button type="submit" disabled={sub.isPending}>Add</button>
       </form>
       {error && <p className="error">{error}</p>}
