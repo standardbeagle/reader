@@ -10,9 +10,24 @@ export interface RefreshResult {
 }
 
 const BROKEN_THRESHOLD = 10;
+export const MAX_FEED_BYTES = 10 * 1024 * 1024;
+
+async function readBodyCapped(res: Response): Promise<string> {
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_FEED_BYTES) throw new Error("feed too large (>10MB)");
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of res.body!) {
+    total += chunk.length;
+    if (total > MAX_FEED_BYTES) throw new Error("feed too large (>10MB)");
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 export class Poller {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private ticking = false;
   private readonly tickMs: number;
   private readonly limit: ReturnType<typeof pLimit>;
 
@@ -39,14 +54,20 @@ export class Poller {
   }
 
   async tick(): Promise<void> {
-    // Error backoff lives here, not in refreshFeed: manual/subscribe refreshes
-    // must not be blocked by backoff (a user retry is the reset path).
-    const now = Date.now();
-    const due = this.storage.dueFeeds(new Date(now)).filter((f) => {
-      if (f.errorCount === 0 || !f.lastFetchedAt) return true;
-      return now >= new Date(f.lastFetchedAt).getTime() + backoffMinutes(f.errorCount) * 60_000;
-    });
-    await Promise.all(due.map((f) => this.limit(() => this.refreshFeed(f.id))));
+    if (this.ticking) return;
+    this.ticking = true;
+    try {
+      // Error backoff lives here, not in refreshFeed: manual/subscribe refreshes
+      // must not be blocked by backoff (a user retry is the reset path).
+      const now = Date.now();
+      const due = this.storage.dueFeeds(new Date(now)).filter((f) => {
+        if (f.errorCount === 0 || !f.lastFetchedAt) return true;
+        return now >= new Date(f.lastFetchedAt).getTime() + backoffMinutes(f.errorCount) * 60_000;
+      });
+      await Promise.all(due.map((f) => this.limit(() => this.refreshFeed(f.id))));
+    } finally {
+      this.ticking = false;
+    }
   }
 
   async refreshFeed(feedId: string): Promise<RefreshResult> {
@@ -54,6 +75,10 @@ export class Poller {
     if (!feed) return { newArticles: 0, error: "feed not found" };
     if (feed.status === "broken") return { newArticles: 0, error: "feed broken" };
 
+    let parsed: Awaited<ReturnType<typeof parseFeed>> | null = null;
+    let etag: string | null = null;
+    let lastModified: string | null = null;
+    let notModified = false;
     try {
       const res = await fetch(feed.url, {
         headers: {
@@ -67,29 +92,13 @@ export class Poller {
       });
 
       if (res.status === 304) {
-        this.storage.updateFeedFetchState(feedId, {
-          lastFetchedAt: new Date().toISOString(),
-          fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, false),
-          errorCount: 0, status: "ok",
-        });
-        return { newArticles: 0, notModified: true };
+        notModified = true;
+      } else {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        etag = res.headers.get("etag");
+        lastModified = res.headers.get("last-modified");
+        parsed = await parseFeed(await readBodyCapped(res));
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const xml = await res.text();
-      const parsed = await parseFeed(xml);
-      const inserted = this.storage.upsertArticles(feedId, parsed.articles, sanitizeHtml);
-
-      this.storage.updateFeedFetchState(feedId, {
-        etag: res.headers.get("etag"),
-        lastModified: res.headers.get("last-modified"),
-        lastFetchedAt: new Date().toISOString(),
-        fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, inserted.length > 0),
-        errorCount: 0, status: "ok",
-        title: parsed.title,
-        siteUrl: parsed.siteUrl,
-      });
-      return { newArticles: inserted.length };
     } catch (e) {
       const errorCount = feed.errorCount + 1;
       this.storage.updateFeedFetchState(feedId, {
@@ -100,5 +109,25 @@ export class Poller {
       });
       return { newArticles: 0, error: e instanceof Error ? e.message : String(e) };
     }
+
+    if (notModified) {
+      this.storage.updateFeedFetchState(feedId, {
+        lastFetchedAt: new Date().toISOString(),
+        fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, false),
+        errorCount: 0, status: "ok",
+      });
+      return { newArticles: 0, notModified: true };
+    }
+    const inserted = this.storage.upsertArticles(feedId, parsed!.articles, sanitizeHtml);
+    this.storage.updateFeedFetchState(feedId, {
+      etag,
+      lastModified,
+      lastFetchedAt: new Date().toISOString(),
+      fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, inserted.length > 0),
+      errorCount: 0, status: "ok",
+      title: parsed!.title,
+      siteUrl: parsed!.siteUrl,
+    });
+    return { newArticles: inserted.length };
   }
 }

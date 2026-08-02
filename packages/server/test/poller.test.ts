@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { Server } from "node:http";
 import { createSqliteStorage } from "../src/storage/sqlite.js";
-import { Poller } from "../src/poller/poller.js";
+import { Poller, MAX_FEED_BYTES } from "../src/poller/poller.js";
 import { startFixtureServer } from "./fixtureServer.js";
 import type { Storage } from "../src/storage/types.js";
 
@@ -23,6 +23,7 @@ beforeEach(async () => {
   ({ server, baseUrl, state } = await startFixtureServer({
     "/feed.xml": { xml: RSS, etag: '"v1"' },
     "/broken.xml": { xml: "", statusOnRequest: 500 },
+    "/huge.xml": { xml: "", rawBody: "x".repeat(MAX_FEED_BYTES + 1024) },
   }));
 });
 
@@ -78,6 +79,14 @@ describe("Poller.refreshFeed", () => {
     for (let i = 0; i < 10; i++) await poller.refreshFeed(feed.id);
     expect(storage.getFeed(feed.id)!.status).toBe("broken");
   });
+
+  it("rejects bodies over the size cap and counts the error", async () => {
+    const { feed } = subscribe(`${baseUrl}/huge.xml`);
+    const poller = new Poller(storage);
+    const result = await poller.refreshFeed(feed.id);
+    expect(result.error).toMatch(/too large/);
+    expect(storage.getFeed(feed.id)!.errorCount).toBe(1);
+  });
 });
 
 describe("Poller.tick", () => {
@@ -89,5 +98,21 @@ describe("Poller.tick", () => {
     await poller.tick(); // not due anymore
     expect(state.get("/feed.xml")!.requestCount).toBe(1);
     expect(storage.getFeed(feed.id)!.errorCount).toBe(0);
+  });
+
+  it("skips feeds within the error backoff window even when due by interval", async () => {
+    const { feed } = subscribe(`${baseUrl}/broken.xml`);
+    const poller = new Poller(storage);
+    await poller.refreshFeed(feed.id);
+    expect(storage.getFeed(feed.id)!.errorCount).toBe(1);
+    const before = state.get("/broken.xml")!.requestCount;
+    storage.updateFeedFetchState(feed.id, {
+      lastFetchedAt: new Date(Date.now() - 70 * 60_000).toISOString(),
+      fetchIntervalMin: 60,
+      errorCount: 10,
+      status: "ok",
+    });
+    await poller.tick(); // due (70 > 60) but backoff is 2^10 = 1024 min
+    expect(state.get("/broken.xml")!.requestCount).toBe(before);
   });
 });

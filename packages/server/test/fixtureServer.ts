@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 
 export interface FixtureFeed {
   xml: string;
+  rawBody?: string;
   etag?: string;
   lastModified?: string;
   statusOnRequest?: number;
@@ -30,7 +31,7 @@ export async function startFixtureServer(feeds: Record<string, Omit<FixtureFeed,
       ...(feed.etag ? { etag: feed.etag } : {}),
       ...(feed.lastModified ? { "last-modified": feed.lastModified } : {}),
     });
-    res.end(feed.xml);
+    res.end(feed.rawBody ?? feed.xml);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
