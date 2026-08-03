@@ -15,7 +15,7 @@ describe("api client", () => {
   it("sends no content-type header on body-less calls", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
     await api.markAllRead("f1");
-    const init = spy.mock.calls[0][1] as RequestInit;
+    const init = spy.mock.calls[0]![1] as RequestInit;
     expect(init.headers).toBeUndefined();
   });
 

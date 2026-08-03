@@ -33,11 +33,16 @@ export class ApiError extends Error {
 async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, {
-      ...init,
-      headers: init?.json !== undefined ? { "content-type": "application/json" } : init?.headers,
-      body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
-    });
+    const { json, headers, body, ...rest } = init ?? {};
+    const requestInit: RequestInit = { ...rest };
+    if (json !== undefined) {
+      requestInit.headers = { "content-type": "application/json" };
+      requestInit.body = JSON.stringify(json);
+    } else {
+      if (headers !== undefined) requestInit.headers = headers;
+      if (body !== undefined) requestInit.body = body;
+    }
+    res = await fetch(path, requestInit);
   } catch {
     throw new ApiError("network request failed", "network", 0);
   }

@@ -44,13 +44,17 @@ export function IngestorDialog(props: { onClose: () => void }) {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<IngestorTestResult | null>(null);
   const qc = useQueryClient();
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setTestResult(null);
+  };
 
   const subscribe = useMutation({
     mutationFn: api.createIngestor,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["feeds"] });
       qc.invalidateQueries({ queryKey: ["ingestors"] });
+      qc.invalidateQueries({ queryKey: ["articles"] });
       props.onClose();
     },
     onError: (e) => setErrorCode(e instanceof ApiError ? e.code : "unknown"),
@@ -71,7 +75,7 @@ export function IngestorDialog(props: { onClose: () => void }) {
         <p className="sub">Follow a Mastodon tag, a Bluesky account or search, or a subreddit — at your pace.</p>
 
         <label htmlFor="ing-platform">Platform</label>
-        <select id="ing-platform" value={form.platform} onChange={(e) => { set("platform", e.target.value as Platform); setTestResult(null); }}>
+        <select id="ing-platform" value={form.platform} onChange={(e) => set("platform", e.target.value as Platform)}>
           <option value="mastodon">Mastodon</option>
           <option value="bluesky">Bluesky</option>
           <option value="reddit">Reddit</option>

@@ -9,7 +9,7 @@ function safeUrl(raw: string): string | null {
   }
 }
 
-export function ArticleView(props: { article: Article | null; onBack?: () => void }) {
+export function ArticleView(props: { article: Article | null; onBack?: (() => void) | undefined }) {
   const a = props.article;
   if (!a) return <main className="reader empty">Select an article</main>;
   const href = a.url ? safeUrl(a.url) : null;
