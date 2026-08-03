@@ -53,6 +53,43 @@ export interface FetchState {
   siteUrl?: string | null;
 }
 
+export interface NormalizedItem {
+  externalId: string;
+  author: string | null;
+  title: string | null;
+  text: string;
+  url: string | null;
+  publishedAt: string | null;
+}
+
+export type IngestorKind = "mastodon" | "bluesky" | "reddit";
+export type DigestMode = "realtime" | "hourly" | "daily";
+
+export interface Ingestor {
+  id: string;
+  userId: string;
+  kind: IngestorKind;
+  config: Record<string, unknown>;
+  feedId: string;
+  fetchIntervalMin: number;
+  digestMode: DigestMode;
+  filterThreshold: number;
+  llmEnabled: boolean;
+  status: "ok" | "broken";
+  errorCount: number;
+  lastFetchedAt: string | null;
+  lastDeliveredAt: string | null;
+  cursor: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface IngestorPatch {
+  fetchIntervalMin?: number;
+  digestMode?: DigestMode;
+  filterThreshold?: number;
+  llmEnabled?: boolean;
+}
+
 export interface Storage {
   close(): void | Promise<void>;
   getOrCreateLocalUser(): User;
@@ -67,4 +104,15 @@ export interface Storage {
   setRead(userId: string, articleId: string, read: boolean): void;
   markAllRead(userId: string, feedId: string): void;
   unreadCounts(userId: string): Record<string, number>;
+  createIngestor(userId: string, input: { kind: IngestorKind; config: Record<string, unknown>; feedId: string }): Ingestor;
+  listIngestors(userId: string): Ingestor[];
+  getIngestor(id: string): Ingestor | null;
+  updateIngestor(id: string, patch: IngestorPatch): Ingestor;
+  deleteIngestor(id: string): void;
+  dueIngestors(now: Date): Ingestor[];
+  dueDigestFlushes(now: Date): Ingestor[];
+  updateIngestorState(id: string, state: { lastFetchedAt?: string; lastDeliveredAt?: string; cursor?: Record<string, unknown>; errorCount: number; status: "ok" | "broken" }): void;
+  stageItems(ingestorId: string, items: NormalizedItem[]): NormalizedItem[];
+  pendingItems(ingestorId: string): NormalizedItem[];
+  markDelivered(ingestorId: string, externalIds: string[]): void;
 }
