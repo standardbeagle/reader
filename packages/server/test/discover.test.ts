@@ -6,7 +6,7 @@ import { discoverFeeds } from "../src/discovery/discover.js";
 const RSS = `<?xml version="1.0"?><rss version="2.0"><channel><title>Site Feed</title><link>https://x</link><item><title>i</title><guid>g1</guid></item></channel></rss>`;
 const ATOM = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Atom One</title><entry><id>e1</id><title>t</title><updated>2026-01-01T00:00:00Z</updated></entry></feed>`;
 
-interface Route { status?: number; contentType?: string; body: string }
+interface Route { status?: number; contentType?: string; body: string; redirect?: string }
 let server: Server;
 let baseUrl: string;
 let routes: Map<string, Route>;
@@ -16,6 +16,7 @@ async function start(r: Record<string, Route>) {
   server = createServer((req, res) => {
     const route = routes.get(req.url ?? "/");
     if (!route) { res.writeHead(404).end("nope"); return; }
+    if (route.redirect) { res.writeHead(302, { location: route.redirect }).end(); return; }
     res.writeHead(route.status ?? 200, { "content-type": route.contentType ?? "text/html" });
     res.end(route.body);
   });
@@ -87,5 +88,49 @@ describe("discoverFeeds", () => {
     server.close();
     await expect(discoverFeeds(`http://127.0.0.1:${port}/`)).rejects.toThrow();
     server = createServer().listen(0); // dummy so afterEach close works
+  });
+
+  it("ignores link tags with non-http(s) hrefs", async () => {
+    const html = `<html><head>
+      <link rel="alternate" type="application/rss+xml" href="javascript:alert(1)">
+      </head><body>hi</body>`;
+    await start({ "/": { body: html } });
+    const found = await discoverFeeds(baseUrl + "/");
+    expect(found.some((f) => f.url.startsWith("javascript:"))).toBe(false);
+  });
+
+  it("accepts single-quoted link tag attributes", async () => {
+    const html = `<html><head>
+      <link rel='alternate' type='application/rss+xml' href='/feed.xml'>
+      </head><body>hi</body>`;
+    await start({
+      "/": { body: html },
+      "/feed.xml": { contentType: "application/rss+xml", body: RSS },
+    });
+    const found = await discoverFeeds(baseUrl + "/");
+    expect(found.map((f) => f.url)).toContain(`${baseUrl}/feed.xml`);
+  });
+
+  it("dedupes probes that redirect to the same final feed URL", async () => {
+    await start({
+      "/": { body: "<html><head></head><body>plain</body></html>" },
+      "/feed": { body: "", redirect: "/feed.xml" },
+      "/feed.xml": { contentType: "application/rss+xml", body: RSS },
+    });
+    const found = await discoverFeeds(baseUrl + "/");
+    expect(found).toEqual([{ url: `${baseUrl}/feed.xml`, title: "Site Feed", kind: "rss" }]);
+  });
+
+  it("resolves relative link hrefs against the post-redirect page URL", async () => {
+    const html = `<html><head>
+      <link rel="alternate" type="application/rss+xml" href="feed.xml">
+      </head><body>hi</body>`;
+    await start({
+      "/old": { body: "", redirect: "/new" },
+      "/new": { body: html },
+    });
+    const found = await discoverFeeds(`${baseUrl}/old`);
+    // new URL("feed.xml", "http://host/new") resolves to root (no trailing slash)
+    expect(found.map((f) => f.url)).toContain(`${baseUrl}/feed.xml`);
   });
 });
