@@ -14,6 +14,24 @@ interface PatchBody {
 }
 
 const KINDS = ["mastodon", "bluesky", "reddit"];
+const DIGEST_MODES = ["realtime", "hourly", "daily"];
+
+function feedUrl(kind: string, config: Record<string, unknown>): string {
+  if (kind === "reddit") return `ingestor://reddit/r/${config.subreddit}`;
+  if (kind === "mastodon") {
+    return config.tag
+      ? `ingestor://mastodon/${config.instance}/tag/${config.tag}`
+      : `ingestor://mastodon/${config.instance}/acct/${config.account}`;
+  }
+  return config.handle
+    ? `ingestor://bluesky/handle/${config.handle}`
+    : `ingestor://bluesky/search/${config.search}`;
+}
+
+function isConstraintViolation(e: unknown): boolean {
+  return typeof (e as { code?: unknown } | null)?.code === "string"
+    && ((e as { code: string }).code.startsWith("SQLITE_CONSTRAINT"));
+}
 
 export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, engine: IngestorEngine, llmConfigured: boolean): void {
   const userId = () => storage.getOrCreateLocalUser().id;
@@ -34,6 +52,9 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
     if (!kind || !KINDS.includes(kind) || !config || typeof config !== "object") {
       return reply.code(400).send({ error: { code: "invalid_ingestor", message: "kind (mastodon|bluesky|reddit) and config object are required" } });
     }
+    if (req.body?.digestMode !== undefined && !DIGEST_MODES.includes(req.body.digestMode)) {
+      return reply.code(400).send({ error: { code: "invalid_ingestor", message: "digestMode must be realtime|hourly|daily" } });
+    }
     if (req.body?.llmEnabled !== false && !llmConfigured) {
       return reply.code(400).send({ error: { code: "llm_not_configured", message: "LLM filtering is on but the server has no OPENROUTER_API_KEY. Set the key or disable LLM filtering." } });
     }
@@ -44,12 +65,19 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
     } catch (e) {
       return reply.code(422).send({ error: { code: "ingestor_invalid", message: e instanceof Error ? e.message : String(e) } });
     }
-    const key = config.subreddit ? `r/${config.subreddit}` : config.tag ? `tag/${config.tag}` : config.handle ?? config.search ?? "feed";
-    const feed = storage.createFeed(userId(), { url: `ingestor://${kind}/${key}`, title, siteUrl: null });
+    let feed;
+    try {
+      feed = storage.createFeed(userId(), { url: feedUrl(kind, config), title, siteUrl: null });
+    } catch (e) {
+      if (isConstraintViolation(e)) {
+        return reply.code(409).send({ error: { code: "duplicate", message: "an ingestor for this source already exists" } });
+      }
+      throw e;
+    }
     const ingestor = storage.createIngestor(userId(), { kind: kind as IngestorKind, config, feedId: feed.id });
     const patched = storage.updateIngestor(ingestor.id, {
       ...(req.body?.fetchIntervalMin ? { fetchIntervalMin: Math.max(5, Math.min(1440, req.body.fetchIntervalMin)) } : {}),
-      ...(req.body?.digestMode && ["realtime", "hourly", "daily"].includes(req.body.digestMode) ? { digestMode: req.body.digestMode as DigestMode } : {}),
+      ...(req.body?.digestMode && DIGEST_MODES.includes(req.body.digestMode) ? { digestMode: req.body.digestMode as DigestMode } : {}),
       ...(req.body?.filterThreshold !== undefined ? { filterThreshold: Math.max(0, Math.min(10, req.body.filterThreshold)) } : {}),
       ...(req.body?.llmEnabled !== undefined ? { llmEnabled: req.body.llmEnabled } : {}),
     });
@@ -64,9 +92,12 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
     if (req.body?.llmEnabled === true && !llmConfigured) {
       return reply.code(400).send({ error: { code: "llm_not_configured", message: "LLM filtering is on but the server has no OPENROUTER_API_KEY." } });
     }
+    if (req.body?.digestMode !== undefined && !DIGEST_MODES.includes(req.body.digestMode)) {
+      return reply.code(400).send({ error: { code: "invalid_ingestor", message: "digestMode must be realtime|hourly|daily" } });
+    }
     const updated = storage.updateIngestor(req.params.id, {
       ...(req.body?.fetchIntervalMin ? { fetchIntervalMin: Math.max(5, Math.min(1440, req.body.fetchIntervalMin)) } : {}),
-      ...(req.body?.digestMode && ["realtime", "hourly", "daily"].includes(req.body.digestMode) ? { digestMode: req.body.digestMode as DigestMode } : {}),
+      ...(req.body?.digestMode && DIGEST_MODES.includes(req.body.digestMode) ? { digestMode: req.body.digestMode as DigestMode } : {}),
       ...(req.body?.filterThreshold !== undefined ? { filterThreshold: Math.max(0, Math.min(10, req.body.filterThreshold)) } : {}),
       ...(req.body?.llmEnabled !== undefined ? { llmEnabled: req.body.llmEnabled } : {}),
     });
@@ -92,7 +123,7 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
     }
     try {
       const result = await engine.testRun(kind, config, {
-        threshold: req.body?.threshold ?? 5,
+        threshold: Math.max(0, Math.min(10, req.body?.threshold ?? 5)),
         llmEnabled: req.body?.llmEnabled !== false,
       });
       return {

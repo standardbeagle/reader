@@ -25,16 +25,13 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
       ? createOpenRouterClient({ apiKey: process.env.OPENROUTER_API_KEY, model: process.env.READER_LLM_MODEL ?? "google/gemini-2.0-flash-001" })
       : null;
   const engine = new IngestorEngine(storage, llm, opts.ingestorAdapters);
+  const app = Fastify({ logger: true });
   let engineTicking = false;
   const runEngineTick = async () => {
     if (engineTicking) return;
     engineTicking = true;
-    try {
-      await engine.tick();
-    } catch {
-    } finally {
-      engineTicking = false;
-    }
+    await engine.tick().catch((e) => app.log.warn(e, "ingestor tick failed"));
+    engineTicking = false;
   };
   let engineTimer: NodeJS.Timeout | null = null;
   if (opts.poller !== false) {
@@ -45,7 +42,6 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
     runEngineTick().catch(() => {});
   }
 
-  const app = Fastify({ logger: true });
   app.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body, done) => {
     const text = (body as string).trim();
     if (text === "") return done(null, undefined);

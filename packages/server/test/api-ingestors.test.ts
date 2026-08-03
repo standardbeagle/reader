@@ -3,6 +3,8 @@ import type { FastifyInstance } from "fastify";
 import { createServer } from "../src/api/server.js";
 import type { LlmClient } from "../src/llm/client.js";
 import type { NormalizedItem } from "../src/storage/types.js";
+import { startFixtureServer } from "./fixtureServer.js";
+import type { Server } from "node:http";
 
 const fakeLlm: LlmClient = {
   async filterBatch(items) {
@@ -125,6 +127,64 @@ describe("ingestor api", () => {
     expect(list.json().ingestors).toHaveLength(0);
     const feeds = await app.inject({ method: "GET", url: "/api/v1/feeds" });
     expect(feeds.json().feeds.find((f: { id: string }) => f.id === ing.feedId)).toBeUndefined();
+  });
+
+  it("derives unique feed keys per mastodon instance and 409s on true duplicates", async () => {
+    let fixture: { server: Server; baseUrl: string } | null = null;
+    try {
+      fixture = await startFixtureServer({
+        "/api/v1/instance": { xml: "", rawBody: "{}" },
+      });
+      const cfg = (instance: string) => ({ instance, tag: "ai", _baseUrl: fixture!.baseUrl });
+
+      const first = await app.inject({
+        method: "POST", url: "/api/v1/ingestors",
+        payload: { kind: "mastodon", config: cfg("mastodon.social") },
+      });
+      expect(first.statusCode).toBe(201);
+
+      const second = await app.inject({
+        method: "POST", url: "/api/v1/ingestors",
+        payload: { kind: "mastodon", config: cfg("hachyderm.io") },
+      });
+      expect(second.statusCode).toBe(201);
+
+      const feeds = await app.inject({ method: "GET", url: "/api/v1/feeds" });
+      const urlOf = (feedId: string) => feeds.json().feeds.find((f: { id: string }) => f.id === feedId)?.url;
+      expect(urlOf(first.json().feedId)).toBe("ingestor://mastodon/mastodon.social/tag/ai");
+      expect(urlOf(second.json().feedId)).toBe("ingestor://mastodon/hachyderm.io/tag/ai");
+
+      const dup = await app.inject({
+        method: "POST", url: "/api/v1/ingestors",
+        payload: { kind: "mastodon", config: cfg("mastodon.social") },
+      });
+      expect(dup.statusCode).toBe(409);
+      expect(dup.json().error.code).toBe("duplicate");
+    } finally {
+      fixture?.server.close();
+    }
+  });
+
+  it("rejects an invalid digestMode on create with 400", async () => {
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/ingestors",
+      payload: { kind: "reddit", config: { subreddit: "test", _kind: "test" }, digestMode: "weekly" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_ingestor");
+  });
+
+  it("rejects an invalid digestMode on patch with 400", async () => {
+    const created = await app.inject({
+      method: "POST", url: "/api/v1/ingestors",
+      payload: { kind: "reddit", config: { subreddit: "test", _kind: "test" } },
+    });
+    const res = await app.inject({
+      method: "PATCH", url: `/api/v1/ingestors/${created.json().id}`,
+      payload: { digestMode: "weekly" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_ingestor");
   });
 
   it("test-runs an ingestor config and returns kept/dropped split", async () => {
