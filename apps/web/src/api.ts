@@ -19,7 +19,7 @@ async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Pr
   try {
     res = await fetch(path, {
       ...init,
-      headers: init?.json !== undefined ? { "content-type": "application/json" } : undefined,
+      headers: init?.json !== undefined ? { "content-type": "application/json" } : init?.headers,
       body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
     });
   } catch {
@@ -36,9 +36,14 @@ async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Pr
 export const api = {
   listFeeds: () => req<{ feeds: Feed[] }>("/api/v1/feeds").then((r) => r.feeds),
   subscribe: async (url: string): Promise<SubscribeResult> => {
-    const res = await fetch("/api/v1/feeds", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/v1/feeds", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
+      });
+    } catch {
+      throw new ApiError("network request failed", "network", 0);
+    }
     if (res.status === 201) return { status: "subscribed", feed: await res.json() };
     if (res.status === 200) { const b = await res.json(); return { status: "choices", feeds: b.feeds }; }
     const body = await res.json().catch(() => null);

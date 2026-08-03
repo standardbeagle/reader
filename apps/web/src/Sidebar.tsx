@@ -23,7 +23,7 @@ export function Sidebar(props: {
   const sub = useMutation({
     mutationFn: api.subscribe,
     onSuccess: (result) => {
-      if (result.status === "choices") { setDiscovered(result.feeds); return; }
+      if (result.status === "choices") { setErrorCode(null); setDiscovered(result.feeds); return; }
       setUrl(""); setErrorCode(null); invalidate();
     },
     onError: (e) => setErrorCode(e instanceof ApiError ? e.code : "unknown"),

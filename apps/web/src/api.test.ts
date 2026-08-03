@@ -35,6 +35,15 @@ describe("api client", () => {
     await expect(api.subscribe("http://x")).rejects.toThrow("already subscribed");
   });
 
+  it("subscribe maps network failures to ApiError code network", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+    const err = await api.subscribe("http://x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe("network");
+    expect(err.status).toBe(0);
+    expect(err.message).toBe("network request failed");
+  });
+
   it("subscribe returns choices on a 200 needsChoice response", async () => {
     const feeds = [
       { url: "http://x/feed.xml", title: "Main", kind: "rss" },
