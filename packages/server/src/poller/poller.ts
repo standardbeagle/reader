@@ -3,6 +3,10 @@ import { parseFeed, sanitizeHtml } from "@reader/core";
 import type { Storage } from "../storage/types.js";
 import { adaptInterval, backoffMinutes } from "./interval.js";
 
+import { fetchCapped } from "../fetch.js";
+
+export { MAX_FEED_BYTES } from "../fetch.js";
+
 export interface RefreshResult {
   newArticles: number;
   notModified?: boolean;
@@ -10,20 +14,6 @@ export interface RefreshResult {
 }
 
 const BROKEN_THRESHOLD = 10;
-export const MAX_FEED_BYTES = 10 * 1024 * 1024;
-
-async function readBodyCapped(res: Response): Promise<string> {
-  const declared = Number(res.headers.get("content-length") ?? 0);
-  if (declared > MAX_FEED_BYTES) throw new Error("feed too large (>10MB)");
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of res.body!) {
-    total += chunk.length;
-    if (total > MAX_FEED_BYTES) throw new Error("feed too large (>10MB)");
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
 
 export class Poller {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -80,24 +70,20 @@ export class Poller {
     let lastModified: string | null = null;
     let notModified = false;
     try {
-      const res = await fetch(feed.url, {
+      const res = await fetchCapped(feed.url, {
         headers: {
           ...(feed.etag ? { "if-none-match": feed.etag } : {}),
           ...(feed.lastModified ? { "if-modified-since": feed.lastModified } : {}),
-          "user-agent": "reader/0.1 (+local)",
-          accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
         },
-        signal: AbortSignal.timeout(15_000),
-        redirect: "follow",
       });
 
       if (res.status === 304) {
         notModified = true;
       } else {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
         etag = res.headers.get("etag");
         lastModified = res.headers.get("last-modified");
-        parsed = await parseFeed(await readBodyCapped(res));
+        parsed = await parseFeed(res.body);
       }
     } catch (e) {
       const errorCount = feed.errorCount + 1;
