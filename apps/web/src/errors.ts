@@ -40,6 +40,31 @@ const catalog: Record<string, ErrorInfo> = {
       "On the desktop app, restart it; on a server, check the reader service status",
     ],
   },
+  llm_not_configured: {
+    title: "LLM filtering isn't set up",
+    explanation: "This ingestor wants to filter content with an LLM, but the server has no OpenRouter API key configured.",
+    steps: [
+      "Set OPENROUTER_API_KEY on the server and restart it",
+      "Or turn off LLM filtering for this ingestor",
+    ],
+  },
+  ingestor_invalid: {
+    title: "Can't reach that source",
+    explanation: "The platform rejected this configuration — the instance, handle, or subreddit may be wrong or unreachable.",
+    steps: [
+      "Double-check the spelling",
+      "For Mastodon, use the bare instance domain like mastodon.social",
+      "For Reddit, use the subreddit name without r/",
+    ],
+  },
+  ingestor_test_failed: {
+    title: "Test run failed",
+    explanation: "Fetching or filtering this source failed.",
+    steps: [
+      "Check the source settings",
+      "Try again in a moment",
+    ],
+  },
   unknown: {
     title: "Something went wrong",
     explanation: "An unexpected error occurred.",

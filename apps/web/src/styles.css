@@ -124,6 +124,23 @@ input:focus { outline: none; border-color: var(--accent); }
 
 .backdrop { position: fixed; inset: 0; background: rgba(10,12,16,0.45); z-index: 14; animation: fade-in var(--dur-fast) var(--ease); }
 
+.ingestor-btn { width: 100%; padding: 5px; margin-bottom: var(--space-3); border: 1px dashed var(--border-strong); color: var(--text-dim); font-size: var(--fs-sm); }
+.ingestor-btn:hover { color: var(--text); border-color: var(--accent); }
+.platform-badge { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-text); background: var(--accent-bg); padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+.dialog { width: min(600px, calc(100vw - 32px)); }
+.dialog label { display: block; font-size: var(--fs-sm); color: var(--text-dim); margin: var(--space-2) 0 2px; }
+.dialog input[type="text"], .dialog input[type="number"], .dialog select { width: 100%; padding: 5px 8px; }
+.dialog .row { display: flex; gap: var(--space-3); }
+.dialog .row > div { flex: 1; }
+.dialog .actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
+.dialog .actions .primary { background: var(--accent); color: var(--accent-contrast); padding: 5px 12px; font-weight: 600; }
+.dialog .test-results { margin-top: var(--space-3); border-top: 1px solid var(--border); padding-top: var(--space-2); max-height: 240px; overflow-y: auto; }
+.dialog .test-results h4 { margin: var(--space-2) 0 2px; font-size: var(--fs-sm); }
+.dialog .test-results li { font-size: var(--fs-sm); padding: 2px 0; }
+.dialog .score { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--accent-text); }
+.dialog .reason { color: var(--text-dim); font-size: var(--fs-xs); }
+.dialog input[type="range"] { width: 100%; }
+
 @media (max-width: 1099px) {
   .hamburger { display: grid; }
   .layout { grid-template-columns: 360px 1fr; }

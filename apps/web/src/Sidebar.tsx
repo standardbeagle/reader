@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type DiscoveredFeed } from "./api";
+import { api, ApiError, feedPlatform, type DiscoveredFeed } from "./api";
 import { ErrorCallout } from "./ErrorCallout";
 import { FeedPicker } from "./FeedPicker";
+import { IngestorDialog } from "./IngestorDialog";
 
 export function Sidebar(props: {
   selectedFeedId: string | null;
@@ -14,8 +15,10 @@ export function Sidebar(props: {
   const [url, setUrl] = useState("");
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [discovered, setDiscovered] = useState<DiscoveredFeed[] | null>(null);
+  const [ingestorOpen, setIngestorOpen] = useState(false);
   const qc = useQueryClient();
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds });
+  const ingestors = useQuery({ queryKey: ["ingestors"], queryFn: api.listIngestors });
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["feeds"] });
     qc.invalidateQueries({ queryKey: ["articles"] });
@@ -32,6 +35,11 @@ export function Sidebar(props: {
   const markAll = useMutation({ mutationFn: api.markAllRead, onSuccess: invalidate });
 
   const total = (feeds.data ?? []).reduce((n, f) => n + f.unreadCount, 0);
+  const ingestorByFeed = new Map((ingestors.data ?? []).map((i) => [i.feedId, i]));
+  const pendingSuffix = (feedId: string) => {
+    const ing = ingestorByFeed.get(feedId);
+    return ing && ing.pendingCount > 0 && ing.digestMode !== "realtime" ? ` · +${ing.pendingCount}` : "";
+  };
 
   return (
     <>
@@ -41,6 +49,7 @@ export function Sidebar(props: {
           <button type="submit" disabled={sub.isPending}>Add</button>
         </form>
         {errorCode && <ErrorCallout code={errorCode} onDismiss={() => setErrorCode(null)} />}
+        <button className="ingestor-btn" onClick={() => setIngestorOpen(true)}>+ Ingestor</button>
         <ul>
           <li className={props.selectedFeedId === null ? "selected" : ""}>
             <button onClick={() => props.onSelectFeed(null)}>
@@ -53,9 +62,10 @@ export function Sidebar(props: {
               <button onClick={() => props.onSelectFeed(f.id)}>
                 <span className="feed-title">
                   {f.status === "broken" && <span className="warn-badge" title="Feed is failing">⚠ </span>}
+                  {feedPlatform(f.url) && <span className="platform-badge">{feedPlatform(f.url)}</span>}
                   {f.title}
                 </span>
-                <span className="count">{f.unreadCount}</span>
+                <span className="count">{f.unreadCount}{pendingSuffix(f.id)}</span>
               </button>
               <span className="row-actions">
                 <button title="Mark all read" onClick={() => markAll.mutate(f.id)}>✓</button>
@@ -66,6 +76,7 @@ export function Sidebar(props: {
         </ul>
       </nav>
       {props.drawer && props.open && <div className="backdrop" onClick={props.onCloseDrawer} />}
+      {ingestorOpen && <IngestorDialog onClose={() => setIngestorOpen(false)} />}
       {discovered && (
         <FeedPicker
           feeds={discovered}
