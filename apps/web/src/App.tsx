@@ -29,7 +29,7 @@ export function App() {
         {isNarrow && (
           <button className="icon-btn hamburger" aria-label="Toggle feeds" onClick={() => setDrawerOpen((v) => !v)}>☰</button>
         )}
-        <span className="brand">Reader</span>
+        <h1 className="brand">Reader</h1>
         <span className="spacer" />
         <button className="icon-btn" aria-label="Toggle theme" onClick={toggleTheme}>
           {theme === "dark" ? "☀" : "☾"}

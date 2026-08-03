@@ -18,7 +18,7 @@ export function ArticleList(props: {
 
   if (props.loading) {
     return (
-      <section className="list">
+      <section className="list" role="region" aria-label="Article list">
         <div className="skel">
           {[0, 1, 2, 3, 4, 5].map((i) => <div className="bar" key={i} />)}
         </div>
@@ -27,14 +27,14 @@ export function ArticleList(props: {
   }
   if (props.articles.length === 0) {
     return (
-      <section className="list">
+      <section className="list" role="region" aria-label="Article list">
         <div className="empty">No articles.</div>
       </section>
     );
   }
 
   return (
-    <section className="list">
+    <section className="list" role="region" aria-label="Article list">
       <ul>
         {props.articles.map((a, index) => (
           <li
