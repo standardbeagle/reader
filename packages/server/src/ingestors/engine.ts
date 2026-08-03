@@ -4,7 +4,7 @@ import type { LlmClient } from "../llm/client.js";
 import { processItems, type PipelineResult } from "../llm/pipeline.js";
 import { adapters } from "./index.js";
 
-type FetchFn = (config: Record<string, unknown>, cursor: Record<string, unknown> | null) => Promise<{ items: NormalizedItem[]; cursor: Record<string, unknown> }>;
+export type FetchFn = (config: Record<string, unknown>, cursor: Record<string, unknown> | null) => Promise<{ items: NormalizedItem[]; cursor: Record<string, unknown> }>;
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
