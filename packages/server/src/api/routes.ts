@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Storage } from "../storage/types.js";
 import type { Poller } from "../poller/poller.js";
+import { discoverFeeds } from "../discovery/discover.js";
 
 interface SubscribeBody { url?: string }
 interface ReadBody { read?: boolean }
@@ -10,6 +11,19 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
   const userId = () => storage.getOrCreateLocalUser().id;
 
   app.get("/api/v1/health", async () => ({ ok: true }));
+
+  app.post<{ Body: SubscribeBody }>("/api/v1/feeds/discover", async (req, reply) => {
+    const url = req.body?.url?.trim();
+    if (!url || !/^https?:\/\//.test(url)) {
+      return reply.code(400).send({ error: { code: "invalid_url", message: "url must be http(s)" } });
+    }
+    try {
+      const feeds = await discoverFeeds(url);
+      return { feeds };
+    } catch (e) {
+      return reply.code(422).send({ error: { code: "feed_fetch_failed", message: e instanceof Error ? e.message : String(e) } });
+    }
+  });
 
   app.post<{ Body: SubscribeBody }>("/api/v1/feeds", async (req, reply) => {
     const url = req.body?.url?.trim();
@@ -21,7 +35,24 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     if (existing) {
       return reply.code(409).send({ error: { code: "duplicate", message: "already subscribed" }, feed: existing });
     }
-    const feed = storage.createFeed(uid, { url, title: url, siteUrl: null });
+    let feeds;
+    try {
+      feeds = await discoverFeeds(url);
+    } catch (e) {
+      return reply.code(422).send({ error: { code: "feed_fetch_failed", message: e instanceof Error ? e.message : String(e) } });
+    }
+    const direct = feeds.find((f) => f.url === url) ?? (feeds.length === 1 ? feeds[0] : null);
+    if (!direct) {
+      if (feeds.length === 0) {
+        return reply.code(422).send({ error: { code: "no_feeds_found", message: "no RSS or Atom feeds found at that URL" } });
+      }
+      return reply.code(200).send({ needsChoice: true, feeds });
+    }
+    const resolved = storage.listFeeds(uid).find((f) => f.url === direct.url);
+    if (resolved) {
+      return reply.code(409).send({ error: { code: "duplicate", message: "already subscribed" }, feed: resolved });
+    }
+    const feed = storage.createFeed(uid, { url: direct.url, title: direct.title, siteUrl: url });
     const result = await poller.refreshFeed(feed.id);
     if (result.error) {
       storage.deleteFeed(feed.id);

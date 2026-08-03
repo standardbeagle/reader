@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 export interface FixtureFeed {
   xml: string;
   rawBody?: string;
+  contentType?: string;
   etag?: string;
   lastModified?: string;
   statusOnRequest?: number;
@@ -27,7 +28,7 @@ export async function startFixtureServer(feeds: Record<string, Omit<FixtureFeed,
       res.writeHead(304).end(); return;
     }
     res.writeHead(200, {
-      "content-type": "application/rss+xml",
+      "content-type": feed.contentType ?? "application/rss+xml",
       ...(feed.etag ? { etag: feed.etag } : {}),
       ...(feed.lastModified ? { "last-modified": feed.lastModified } : {}),
     });
