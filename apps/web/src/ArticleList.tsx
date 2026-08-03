@@ -16,21 +16,39 @@ export function ArticleList(props: {
     },
   });
 
-  if (props.loading) return <section className="list">Loading…</section>;
-  if (props.articles.length === 0) return <section className="list">No articles.</section>;
+  if (props.loading) {
+    return (
+      <section className="list">
+        <div className="skel">
+          {[0, 1, 2, 3, 4, 5].map((i) => <div className="bar" key={i} />)}
+        </div>
+      </section>
+    );
+  }
+  if (props.articles.length === 0) {
+    return (
+      <section className="list">
+        <div className="empty">No articles.</div>
+      </section>
+    );
+  }
 
   return (
     <section className="list">
       <ul>
-        {props.articles.map((a) => (
-          <li key={a.id} className={`${a.readAt ? "read" : "unread"} ${props.selectedId === a.id ? "selected" : ""}`}>
+        {props.articles.map((a, index) => (
+          <li
+            key={a.id}
+            className={`${a.readAt ? "read" : "unread"} ${props.selectedId === a.id ? "selected" : ""}`}
+            style={{ animationDelay: `${Math.min(index, 12) * 12}ms` }}
+          >
             <button
               onClick={() => {
                 props.onSelect(a);
                 if (!a.readAt) setRead.mutate({ id: a.id, read: true });
               }}
             >
-              {a.title}
+              <span className="t">{a.title}</span>
             </button>
             <span className="date">{a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : ""}</span>
           </li>

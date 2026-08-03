@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
-export function Sidebar(props: { selectedFeedId: string | null; onSelectFeed: (id: string | null) => void }) {
+export function Sidebar(props: {
+  selectedFeedId: string | null;
+  onSelectFeed: (id: string | null) => void;
+  open: boolean;
+  drawer: boolean;
+  onCloseDrawer: () => void;
+}) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
@@ -22,28 +28,38 @@ export function Sidebar(props: { selectedFeedId: string | null; onSelectFeed: (i
   const total = (feeds.data ?? []).reduce((n, f) => n + f.unreadCount, 0);
 
   return (
-    <nav className="sidebar">
-      <h1>Reader</h1>
-      <form onSubmit={(e) => { e.preventDefault(); if (url.trim() && !sub.isPending) sub.mutate(url.trim()); }}>
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Add feed URL" aria-label="Feed URL" />
-        <button type="submit" disabled={sub.isPending}>Add</button>
-      </form>
-      {error && <p className="error">{error}</p>}
-      <ul>
-        <li className={props.selectedFeedId === null ? "selected" : ""}>
-          <button onClick={() => props.onSelectFeed(null)}>All items ({total})</button>
-        </li>
-        {(feeds.data ?? []).map((f) => (
-          <li key={f.id} className={props.selectedFeedId === f.id ? "selected" : ""}>
-            <button onClick={() => props.onSelectFeed(f.id)}>
-              {f.status === "broken" && <span title="Feed is failing">⚠ </span>}
-              {f.title} ({f.unreadCount})
+    <>
+      <nav className={`sidebar${props.open ? " open" : ""}`}>
+        <form onSubmit={(e) => { e.preventDefault(); if (url.trim() && !sub.isPending) sub.mutate(url.trim()); }}>
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Add feed URL" aria-label="Feed URL" />
+          <button type="submit" disabled={sub.isPending}>Add</button>
+        </form>
+        {error && <p className="error">{error}</p>}
+        <ul>
+          <li className={props.selectedFeedId === null ? "selected" : ""}>
+            <button onClick={() => props.onSelectFeed(null)}>
+              <span className="feed-title">All items</span>
+              <span className="count">{total}</span>
             </button>
-            <button title="Mark all read" onClick={() => markAll.mutate(f.id)}>✓</button>
-            <button title="Unsubscribe" onClick={() => { if (confirm(`Unsubscribe from ${f.title}?`)) unsub.mutate(f.id); }}>×</button>
           </li>
-        ))}
-      </ul>
-    </nav>
+          {(feeds.data ?? []).map((f) => (
+            <li key={f.id} className={props.selectedFeedId === f.id ? "selected" : ""}>
+              <button onClick={() => props.onSelectFeed(f.id)}>
+                <span className="feed-title">
+                  {f.status === "broken" && <span className="warn-badge" title="Feed is failing">⚠ </span>}
+                  {f.title}
+                </span>
+                <span className="count">{f.unreadCount}</span>
+              </button>
+              <span className="row-actions">
+                <button title="Mark all read" onClick={() => markAll.mutate(f.id)}>✓</button>
+                <button title="Unsubscribe" onClick={() => { if (confirm(`Unsubscribe from ${f.title}?`)) unsub.mutate(f.id); }}>×</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      {props.drawer && props.open && <div className="backdrop" onClick={props.onCloseDrawer} />}
+    </>
   );
 }
