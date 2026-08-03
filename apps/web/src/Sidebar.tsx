@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, ApiError, type DiscoveredFeed } from "./api";
+import { ErrorCallout } from "./ErrorCallout";
+import { FeedPicker } from "./FeedPicker";
 
 export function Sidebar(props: {
   selectedFeedId: string | null;
@@ -10,7 +12,8 @@ export function Sidebar(props: {
   onCloseDrawer: () => void;
 }) {
   const [url, setUrl] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [discovered, setDiscovered] = useState<DiscoveredFeed[] | null>(null);
   const qc = useQueryClient();
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds });
   const invalidate = () => {
@@ -19,8 +22,11 @@ export function Sidebar(props: {
   };
   const sub = useMutation({
     mutationFn: api.subscribe,
-    onSuccess: () => { setUrl(""); setError(null); invalidate(); },
-    onError: (e) => setError(e.message),
+    onSuccess: (result) => {
+      if (result.status === "choices") { setDiscovered(result.feeds); return; }
+      setUrl(""); setErrorCode(null); invalidate();
+    },
+    onError: (e) => setErrorCode(e instanceof ApiError ? e.code : "unknown"),
   });
   const unsub = useMutation({ mutationFn: api.unsubscribe, onSuccess: invalidate });
   const markAll = useMutation({ mutationFn: api.markAllRead, onSuccess: invalidate });
@@ -34,7 +40,7 @@ export function Sidebar(props: {
           <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Add feed URL" aria-label="Feed URL" />
           <button type="submit" disabled={sub.isPending}>Add</button>
         </form>
-        {error && <p className="error">{error}</p>}
+        {errorCode && <ErrorCallout code={errorCode} onDismiss={() => setErrorCode(null)} />}
         <ul>
           <li className={props.selectedFeedId === null ? "selected" : ""}>
             <button onClick={() => props.onSelectFeed(null)}>
@@ -60,6 +66,14 @@ export function Sidebar(props: {
         </ul>
       </nav>
       {props.drawer && props.open && <div className="backdrop" onClick={props.onCloseDrawer} />}
+      {discovered && (
+        <FeedPicker
+          feeds={discovered}
+          pending={sub.isPending}
+          onPick={(feedUrl) => { setDiscovered(null); sub.mutate(feedUrl); }}
+          onCancel={() => setDiscovered(null)}
+        />
+      )}
     </>
   );
 }

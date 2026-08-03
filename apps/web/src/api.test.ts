@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 
 beforeEach(() => vi.restoreAllMocks());
 
@@ -33,5 +33,28 @@ describe("api client", () => {
       new Response(JSON.stringify({ error: { code: "duplicate", message: "already subscribed" } }), { status: 409 }),
     );
     await expect(api.subscribe("http://x")).rejects.toThrow("already subscribed");
+  });
+
+  it("subscribe returns choices on a 200 needsChoice response", async () => {
+    const feeds = [
+      { url: "http://x/feed.xml", title: "Main", kind: "rss" },
+      { url: "http://x/atom.xml", title: "Atom", kind: "atom" },
+    ];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ needsChoice: true, feeds }), { status: 200 }),
+    );
+    const result = await api.subscribe("http://x");
+    expect(result).toEqual({ status: "choices", feeds });
+  });
+
+  it("ApiError carries code on 422", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: "no_feeds_found", message: "no RSS or Atom feeds found at that URL" } }), { status: 422 }),
+    );
+    const err = await api.subscribe("http://x").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe("no_feeds_found");
+    expect(err.status).toBe(422);
+    expect(err.message).toBe("no RSS or Atom feeds found at that URL");
   });
 });
