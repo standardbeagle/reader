@@ -21,6 +21,21 @@ const failingLlm: LlmClient = {
   async summarizeBatch() { throw new Error("llm down"); },
 };
 
+function makeFlakyLlm() {
+  const state = { fail: true };
+  const llm: LlmClient = {
+    async filterBatch(items) {
+      if (state.fail) throw new Error("llm down");
+      return items.map((i) => ({ id: i.id, score: 9, reason: "ok" }));
+    },
+    async summarizeBatch(items) {
+      if (state.fail) throw new Error("llm down");
+      return items.map((i) => ({ id: i.id, title: `Clean: ${i.title ?? "post"}`, summary: "Factual summary." }));
+    },
+  };
+  return { state, llm };
+}
+
 beforeEach(() => {
   storage = createSqliteStorage(":memory:");
   userId = storage.getOrCreateLocalUser().id;
@@ -75,7 +90,34 @@ describe("IngestorEngine", () => {
     expect(storage.pendingItems(ing.id)).toHaveLength(2);
     const flush = await engine.flushDigest(ing.id);
     expect(flush).toMatchObject({ kept: 2 });
-    expect(storage.listArticles({ userId, feedId: ing.feedId, limit: 50 })).toHaveLength(2);
+    const articles = storage.listArticles({ userId, feedId: ing.feedId, limit: 50 });
+    expect(articles).toHaveLength(2);
+    expect(storage.pendingItems(ing.id)).toHaveLength(0);
+    const now = Date.now();
+    for (const a of articles) {
+      expect(a.publishedAt).toBeTruthy();
+      expect(Math.abs(now - new Date(a.publishedAt!).getTime())).toBeLessThan(10_000);
+    }
+  });
+
+  it("realtime: retries staged items after transient llm failure", async () => {
+    const { state, llm } = makeFlakyLlm();
+    let fetchCount = 0;
+    const engine = new IngestorEngine(storage, llm, {
+      test: async () => {
+        fetchCount++;
+        return { items: fetchCount === 1 ? [item(1)] : [], cursor: {} };
+      },
+    });
+    const ing = makeIngestor(engine);
+    const first = await engine.processIngestor(ing.id);
+    expect(first).toHaveProperty("error");
+    expect(storage.listArticles({ userId, feedId: ing.feedId, limit: 50 })).toHaveLength(0);
+    expect(storage.pendingItems(ing.id)).toHaveLength(1);
+    state.fail = false;
+    const second = await engine.processIngestor(ing.id);
+    expect(second).toMatchObject({ fetched: 0, kept: 1, dropped: 0 });
+    expect(storage.listArticles({ userId, feedId: ing.feedId, limit: 50 })).toHaveLength(1);
     expect(storage.pendingItems(ing.id)).toHaveLength(0);
   });
 

@@ -30,13 +30,16 @@ export class IngestorEngine {
     if (ing.status === "broken") return { error: "ingestor broken" };
     try {
       const { items, cursor } = await this.fetchFn(ing)(ing.config, ing.cursor);
-      const fresh = this.storage.stageItems(ing.id, items);
+      this.storage.stageItems(ing.id, items);
       let kept = 0;
       let dropped = 0;
-      if (ing.digestMode === "realtime" && fresh.length > 0) {
-        const result = await this.runPipeline(ing, fresh);
-        kept = result.kept.length;
-        dropped = result.dropped.length;
+      if (ing.digestMode === "realtime") {
+        const pending = this.storage.pendingItems(ing.id);
+        if (pending.length > 0) {
+          const result = await this.runPipeline(ing, pending, "original");
+          kept = result.kept.length;
+          dropped = result.dropped.length;
+        }
       }
       this.storage.updateIngestorState(ing.id, {
         lastFetchedAt: new Date().toISOString(), cursor, errorCount: 0, status: "ok",
@@ -58,7 +61,7 @@ export class IngestorEngine {
     const pending = this.storage.pendingItems(ing.id);
     if (pending.length === 0) return { kept: 0, dropped: 0 };
     try {
-      const result = await this.runPipeline(ing, pending);
+      const result = await this.runPipeline(ing, pending, "delivery");
       this.storage.updateIngestorState(ing.id, { lastDeliveredAt: new Date().toISOString(), errorCount: 0, status: "ok" });
       return { kept: result.kept.length, dropped: result.dropped.length };
     } catch (e) {
@@ -70,7 +73,7 @@ export class IngestorEngine {
     }
   }
 
-  private async runPipeline(ing: Ingestor, items: NormalizedItem[]): Promise<PipelineResult> {
+  private async runPipeline(ing: Ingestor, items: NormalizedItem[], publishedAt: "original" | "delivery"): Promise<PipelineResult> {
     const result = await processItems(items, {
       llm: ing.llmEnabled ? this.llm : null,
       threshold: ing.filterThreshold,
@@ -83,7 +86,7 @@ export class IngestorEngine {
           url: k.item.url,
           title: k.title,
           author: k.item.author,
-          publishedAt: k.item.publishedAt ? new Date(k.item.publishedAt) : null,
+          publishedAt: publishedAt === "delivery" ? new Date() : k.item.publishedAt ? new Date(k.item.publishedAt) : null,
           contentHtml: `<p>${escapeHtml(k.summary)}</p>` + (k.item.url ? `<p><a href="${escapeHtml(k.item.url)}">View original</a></p>` : ""),
           summary: k.summary,
         })),
