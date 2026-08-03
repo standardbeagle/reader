@@ -8,6 +8,7 @@ export interface FixtureFeed {
   etag?: string;
   lastModified?: string;
   statusOnRequest?: number;
+  redirectTo?: string;
   requestCount: number;
 }
 
@@ -21,6 +22,9 @@ export async function startFixtureServer(feeds: Record<string, Omit<FixtureFeed,
     if (!feed) { res.writeHead(404).end(); return; }
     feed.requestCount++;
     if (feed.statusOnRequest) { res.writeHead(feed.statusOnRequest).end(); return; }
+    if (feed.redirectTo) {
+      res.writeHead(301, { location: feed.redirectTo }).end(); return;
+    }
     if (feed.etag && req.headers["if-none-match"] === feed.etag) {
       res.writeHead(304).end(); return;
     }

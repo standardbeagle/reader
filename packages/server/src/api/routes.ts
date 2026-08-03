@@ -52,7 +52,17 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     if (resolved) {
       return reply.code(409).send({ error: { code: "duplicate", message: "already subscribed" }, feed: resolved });
     }
-    const feed = storage.createFeed(uid, { url: direct.url, title: direct.title, siteUrl: url });
+    let feed;
+    try {
+      feed = storage.createFeed(uid, { url: direct.url, title: direct.title, siteUrl: url });
+    } catch (e) {
+      const code = (e as { code?: unknown }).code;
+      if (typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT")) {
+        const existingFeed = storage.listFeeds(uid).find((f) => f.url === direct.url);
+        return reply.code(409).send({ error: { code: "duplicate", message: "already subscribed" }, ...(existingFeed ? { feed: existingFeed } : {}) });
+      }
+      throw e;
+    }
     const result = await poller.refreshFeed(feed.id);
     if (result.error) {
       storage.deleteFeed(feed.id);

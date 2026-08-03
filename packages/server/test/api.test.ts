@@ -70,6 +70,54 @@ describe("api", () => {
     expect(dup.statusCode).toBe(409);
   });
 
+  it("returns 409 when a redirecting url resolves to an already-subscribed feed", async () => {
+    const redir = await startFixtureServer({
+      "/old.xml": { xml: "", redirectTo: "/feed.xml" },
+      "/feed.xml": { xml: RSS },
+    });
+    try {
+      const created = await app.inject({
+        method: "POST", url: "/api/v1/feeds",
+        payload: { url: `${redir.baseUrl}/feed.xml` },
+      });
+      expect(created.statusCode).toBe(201);
+      expect(created.json().url).toBe(`${redir.baseUrl}/feed.xml`);
+
+      const dup = await app.inject({
+        method: "POST", url: "/api/v1/feeds",
+        payload: { url: `${redir.baseUrl}/old.xml` },
+      });
+      expect(dup.statusCode).toBe(409);
+      const body = dup.json();
+      expect(body.error.code).toBe("duplicate");
+      expect(body.feed.url).toBe(`${redir.baseUrl}/feed.xml`);
+    } finally {
+      await new Promise((r) => redir.server.close(r));
+    }
+  });
+
+  it("auto-subscribes when a site advertises exactly one feed", async () => {
+    const one = await startFixtureServer({
+      "/onesite": {
+        xml: `<html><head><link rel="alternate" type="application/rss+xml" href="/only.xml"></head><body>x</body></html>`,
+        contentType: "text/html",
+      },
+      "/only.xml": { xml: RSS },
+    });
+    try {
+      const res = await app.inject({
+        method: "POST", url: "/api/v1/feeds",
+        payload: { url: `${one.baseUrl}/onesite` },
+      });
+      expect(res.statusCode).toBe(201);
+      const feed = res.json();
+      expect(feed.title).toBe("API Blog");
+      expect(feed.url).toBe(`${one.baseUrl}/only.xml`);
+    } finally {
+      await new Promise((r) => one.server.close(r));
+    }
+  });
+
   it("lists articles and marks read/unread", async () => {
     await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml` } });
     const arts = await app.inject({ method: "GET", url: "/api/v1/articles" });
