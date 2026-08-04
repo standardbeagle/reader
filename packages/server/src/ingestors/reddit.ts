@@ -13,10 +13,10 @@ function redditCreds(config: Record<string, unknown>): { clientId: string; clien
   return { clientId, clientSecret, ...(username && password ? { username, password } : {}) };
 }
 
-async function getToken(config: Record<string, unknown>, tokenBase: string, cacheKey: string): Promise<string> {
+async function getToken(config: Record<string, unknown>, tokenBase: string, cacheKey: string, force: boolean): Promise<string> {
   const creds = redditCreds(config)!;
   const hit = tokenCache.get(cacheKey);
-  if (hit && hit.expiresAt > Date.now() + 60_000) return hit.token;
+  if (!force && hit && hit.expiresAt > Date.now() + 60_000) return hit.token;
   const body = new URLSearchParams(
     creds.username
       ? { grant_type: "password", username: creds.username, password: creds.password! }
@@ -47,20 +47,24 @@ export const redditAdapter: IngestorAdapter = {
     const creds = redditCreds(config);
     let base = (config._baseUrl as string) ?? "https://www.reddit.com";
     const headers: Record<string, string> = { "user-agent": "reader/0.1 (feed reader)" };
+    const cacheKey = creds ? ((config._cacheKey as string) ?? creds.clientId) : "";
+    const tokenBase = (config._tokenBase as string) ?? "https://www.reddit.com";
     if (creds) {
-      const cacheKey = (config._cacheKey as string) ?? creds.clientId;
-      const tokenBase = (config._tokenBase as string) ?? "https://www.reddit.com";
-      const token = await getToken(config, tokenBase, cacheKey);
+      const token = await getToken(config, tokenBase, cacheKey, false);
       base = (config._oauthBase as string) ?? "https://oauth.reddit.com";
       headers.authorization = `Bearer ${token}`;
     }
     const sort = (config.sort as string) ?? "new";
     const params = new URLSearchParams({ limit: "25" });
     if (cursor?.after) params.set("after", String(cursor.after));
-    const res = await fetchCapped(
-      `${base}/r/${encodeURIComponent(String(config.subreddit))}/${sort}.json?${params}`,
-      { maxBytes: 5 * 1024 * 1024, headers },
-    );
+    const url = `${base}/r/${encodeURIComponent(String(config.subreddit))}/${sort}.json?${params}`;
+    const fetchListing = () => fetchCapped(url, { maxBytes: 5 * 1024 * 1024, headers });
+    let res = await fetchListing();
+    if (res.status === 401 && creds) {
+      const token = await getToken(config, tokenBase, cacheKey, true);
+      headers.authorization = `Bearer ${token}`;
+      res = await fetchListing();
+    }
     if (res.status !== 200) throw new Error(`reddit fetch failed: HTTP ${res.status}`);
     const listing = JSON.parse(res.body) as { data: { children: { data: Record<string, unknown> }[]; after: string | null } };
     const items = listing.data.children.map((c) => {

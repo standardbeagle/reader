@@ -187,6 +187,40 @@ describe("ingestor api", () => {
     expect(res.json().error.code).toBe("invalid_ingestor");
   });
 
+  it("redacts credential fields from api responses", async () => {
+    const config = { handle: "x", identifier: "me", appPassword: "secretpw", _kind: "test" };
+    const created = await app.inject({
+      method: "POST", url: "/api/v1/ingestors",
+      payload: { kind: "bluesky", config, llmEnabled: false },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(JSON.stringify(created.json())).not.toContain("secretpw");
+    expect(created.json().hasCredentials).toBe(true);
+    expect(created.json().config.identifier).toBe("me");
+    expect(created.json().config.appPassword).toBe("•••");
+
+    const list = await app.inject({ method: "GET", url: "/api/v1/ingestors" });
+    expect(list.statusCode).toBe(200);
+    expect(JSON.stringify(list.json())).not.toContain("secretpw");
+    const item = list.json().ingestors[0];
+    expect(item.hasCredentials).toBe(true);
+    expect(item.config.identifier).toBe("me");
+    expect(item.config.appPassword).toBe("•••");
+
+    const patched = await app.inject({
+      method: "PATCH", url: `/api/v1/ingestors/${created.json().id}`,
+      payload: { digestMode: "hourly" },
+    });
+    expect(JSON.stringify(patched.json())).not.toContain("secretpw");
+    expect(patched.json().hasCredentials).toBe(true);
+
+    const noCreds = await app.inject({
+      method: "POST", url: "/api/v1/ingestors",
+      payload: { kind: "reddit", config: { subreddit: "test", _kind: "test" }, llmEnabled: false },
+    });
+    expect(noCreds.json().hasCredentials).toBe(false);
+  });
+
   it("test-runs an ingestor config and returns kept/dropped split", async () => {
     const res = await app.inject({
       method: "POST", url: "/api/v1/ingestors/test",

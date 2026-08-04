@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { Storage, IngestorKind, DigestMode } from "../storage/types.js";
+import type { Storage, Ingestor, IngestorKind, DigestMode } from "../storage/types.js";
 import type { IngestorEngine } from "../ingestors/engine.js";
 import { adapters } from "../ingestors/index.js";
 
@@ -15,6 +15,25 @@ interface PatchBody {
 
 const KINDS = ["mastodon", "bluesky", "reddit"];
 const DIGEST_MODES = ["realtime", "hourly", "daily"];
+
+const SECRET_KEYS = new Set(["appPassword", "clientSecret", "password"]);
+
+function redactConfig(config: Record<string, unknown>): { config: Record<string, unknown>; hasCredentials: boolean } {
+  let hasCredentials = false;
+  const redacted: Record<string, unknown> = { ...config };
+  for (const key of Object.keys(redacted)) {
+    if (SECRET_KEYS.has(key) && redacted[key]) {
+      redacted[key] = "•••";
+      hasCredentials = true;
+    }
+  }
+  return { config: redacted, hasCredentials };
+}
+
+function serializeIngestor(i: Ingestor): Ingestor & { hasCredentials: boolean } {
+  const { config, hasCredentials } = redactConfig(i.config);
+  return { ...i, config, hasCredentials };
+}
 
 function feedUrl(kind: string, config: Record<string, unknown>): string {
   if (kind === "reddit") return `ingestor://reddit/r/${config.subreddit}`;
@@ -40,7 +59,7 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
     const uid = userId();
     return {
       ingestors: storage.listIngestors(uid).map((i) => ({
-        ...i,
+        ...serializeIngestor(i),
         feedTitle: storage.getFeed(i.feedId)?.title ?? null,
         pendingCount: storage.pendingItems(i.id).length,
       })),
@@ -82,7 +101,7 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
       ...(req.body?.llmEnabled !== undefined ? { llmEnabled: req.body.llmEnabled } : {}),
     });
     engine.processIngestor(patched.id).catch(() => {});
-    return reply.code(201).send(patched);
+    return reply.code(201).send(serializeIngestor(patched));
   });
 
   app.patch<{ Params: { id: string }; Body: PatchBody }>("/api/v1/ingestors/:id", async (req, reply) => {
@@ -101,7 +120,7 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
       ...(req.body?.filterThreshold !== undefined ? { filterThreshold: Math.max(0, Math.min(10, req.body.filterThreshold)) } : {}),
       ...(req.body?.llmEnabled !== undefined ? { llmEnabled: req.body.llmEnabled } : {}),
     });
-    return updated;
+    return serializeIngestor(updated);
   });
 
   app.delete<{ Params: { id: string } }>("/api/v1/ingestors/:id", async (req, reply) => {

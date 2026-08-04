@@ -66,4 +66,34 @@ describe("reddit oauth", () => {
     await redditAdapter.fetch(cfg, null);
     expect(tokenCalls).toBe(1);
   });
+
+  it("force-refreshes the token and retries once on a 401 listing response", async () => {
+    let calls = 0;
+    const strict = createServer((req, res) => {
+      const u = new URL(req.url ?? "/", "http://x");
+      if (u.pathname === "/api/v1/access_token") {
+        calls++;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ access_token: `tok-${calls}`, token_type: "bearer", expires_in: 3600 }));
+        return;
+      }
+      if (u.pathname.endsWith(".json")) {
+        if (calls < 2 || req.headers.authorization !== `Bearer tok-${calls}`) { res.writeHead(401).end(); return; }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(LISTING));
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((r) => strict.listen(0, "127.0.0.1", r));
+    try {
+      const base = `http://127.0.0.1:${(strict.address() as AddressInfo).port}`;
+      const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", _oauthBase: base, _tokenBase: base, _cacheKey: "rc401" };
+      const result = await redditAdapter.fetch(cfg, null);
+      expect(calls).toBe(2);
+      expect(result.items).toHaveLength(1);
+    } finally {
+      await new Promise((r) => strict.close(r));
+    }
+  });
 });
