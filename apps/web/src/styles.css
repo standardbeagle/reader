@@ -129,7 +129,8 @@ input:focus { outline: none; border-color: var(--accent); }
 .platform-badge { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-text); background: var(--accent-bg); padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
 .dialog { width: min(600px, calc(100vw - 32px)); }
 .dialog label { display: block; font-size: var(--fs-sm); color: var(--text-dim); margin: var(--space-2) 0 2px; }
-.dialog input[type="text"], .dialog input[type="number"], .dialog select { width: 100%; padding: 5px 8px; }
+.dialog input[type="text"], .dialog input[type="number"], .dialog input[type="password"], .dialog select { width: 100%; padding: 5px 8px; }
+.dialog .auth-hint { font-size: var(--fs-xs); color: var(--text-dim); margin-top: 2px; }
 .dialog .row { display: flex; gap: var(--space-3); }
 .dialog .row > div { flex: 1; }
 .dialog .actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); }

@@ -13,6 +13,12 @@ interface FormState {
   search: string;
   subreddit: string;
   sort: "new" | "hot" | "top";
+  identifier: string;
+  appPassword: string;
+  clientId: string;
+  clientSecret: string;
+  username: string;
+  password: string;
   fetchIntervalMin: number;
   digestMode: "realtime" | "hourly" | "daily";
   llmEnabled: boolean;
@@ -27,6 +33,12 @@ const initial: FormState = {
   search: "",
   subreddit: "",
   sort: "new",
+  identifier: "",
+  appPassword: "",
+  clientId: "",
+  clientSecret: "",
+  username: "",
+  password: "",
   fetchIntervalMin: 60,
   digestMode: "realtime",
   llmEnabled: true,
@@ -35,8 +47,21 @@ const initial: FormState = {
 
 function buildConfig(f: FormState): Record<string, unknown> {
   if (f.platform === "mastodon") return { instance: f.instance.trim(), ...(f.tag.trim() ? { tag: f.tag.trim() } : {}) };
-  if (f.platform === "bluesky") return f.handle.trim() ? { handle: f.handle.trim() } : { search: f.search.trim() };
-  return { subreddit: f.subreddit.trim(), sort: f.sort };
+  if (f.platform === "bluesky") {
+    return {
+      ...(f.handle.trim() ? { handle: f.handle.trim() } : { search: f.search.trim() }),
+      ...(f.identifier.trim() ? { identifier: f.identifier.trim() } : {}),
+      ...(f.appPassword ? { appPassword: f.appPassword } : {}),
+    };
+  }
+  return {
+    subreddit: f.subreddit.trim(),
+    sort: f.sort,
+    ...(f.clientId.trim() ? { clientId: f.clientId.trim() } : {}),
+    ...(f.clientSecret ? { clientSecret: f.clientSecret } : {}),
+    ...(f.username.trim() ? { username: f.username.trim() } : {}),
+    ...(f.password ? { password: f.password } : {}),
+  };
 }
 
 export function IngestorDialog(props: { onClose: () => void }) {
@@ -120,6 +145,49 @@ export function IngestorDialog(props: { onClose: () => void }) {
               </select>
             </div>
           </div>
+        )}
+
+        {form.platform !== "mastodon" && (
+          <>
+            <label>Authentication (optional)</label>
+            {form.platform === "bluesky" && (
+              <div className="row">
+                <div>
+                  <label htmlFor="ing-identifier">Identifier</label>
+                  <input id="ing-identifier" type="text" value={form.identifier} placeholder="you.bsky.social" onChange={(e) => set("identifier", e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="ing-app-password">App password</label>
+                  <input id="ing-app-password" type="password" value={form.appPassword} placeholder="app password" onChange={(e) => set("appPassword", e.target.value)} />
+                </div>
+              </div>
+            )}
+            {form.platform === "reddit" && (
+              <>
+                <div className="row">
+                  <div>
+                    <label htmlFor="ing-client-id">Client ID</label>
+                    <input id="ing-client-id" type="text" value={form.clientId} onChange={(e) => set("clientId", e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="ing-client-secret">Client secret</label>
+                    <input id="ing-client-secret" type="password" value={form.clientSecret} onChange={(e) => set("clientSecret", e.target.value)} />
+                  </div>
+                </div>
+                <div className="row">
+                  <div>
+                    <label htmlFor="ing-username">Username (optional)</label>
+                    <input id="ing-username" type="text" value={form.username} onChange={(e) => set("username", e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="ing-password">Password (optional)</label>
+                    <input id="ing-password" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} />
+                  </div>
+                </div>
+              </>
+            )}
+            <p className="auth-hint">Leave blank to try unauthenticated access. Credentials are stored in your local reader database.</p>
+          </>
         )}
 
         <div className="row">
