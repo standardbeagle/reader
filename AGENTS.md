@@ -24,3 +24,9 @@ Widening any listener beyond loopback is a user decision, never an agent's.
 ## Known blockers
 
 - M4 (hosted multi-user): SSRF guard required before any unauthenticated exposure (spec section 9).
+
+## Secrets (`~/.config/reader/env`, user-managed, chmod 600)
+
+- `OPENROUTER_API_KEY` — LLM filter/summarize (currently needs a fresh key; the one previously in shell env is 401)
+- Optional per-platform auth: `BLUESKY_IDENTIFIER`, `BLUESKY_APP_PASSWORD`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`
+- Ingestor credentials may also live in ingestor config (local DB); API responses redact them.
