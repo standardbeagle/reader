@@ -6,6 +6,7 @@ export interface ParsedArticle {
   publishedAt: Date | null;
   contentHtml: string | null;
   summary: string | null;
+  imageUrl?: string | null;
 }
 
 export interface ParsedFeed {

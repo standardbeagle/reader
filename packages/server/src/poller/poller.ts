@@ -14,9 +14,11 @@ export interface RefreshResult {
 }
 
 const BROKEN_THRESHOLD = 10;
+const STARTUP_DELAY_MS = 5_000;
 
 export class Poller {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private ticking = false;
   private readonly tickMs: number;
   private readonly limit: ReturnType<typeof pLimit>;
@@ -35,12 +37,20 @@ export class Poller {
       this.tick().catch((e) => console.error("[poller] tick error", e));
     }, this.tickMs);
     this.timer.unref?.();
-    this.tick().catch((e) => console.error("[poller] tick error", e));
+    // Let health, feed-list, and article-list requests get through before a
+    // restart-triggered refresh begins parsing and writing all due feeds.
+    this.startupTimer = setTimeout(() => {
+      this.startupTimer = null;
+      this.tick().catch((e) => console.error("[poller] tick error", e));
+    }, Math.min(STARTUP_DELAY_MS, this.tickMs));
+    this.startupTimer.unref?.();
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.startupTimer) clearTimeout(this.startupTimer);
     this.timer = null;
+    this.startupTimer = null;
   }
 
   async tick(): Promise<void> {
@@ -51,6 +61,7 @@ export class Poller {
       // must not be blocked by backoff (a user retry is the reset path).
       const now = Date.now();
       const due = this.storage.dueFeeds(new Date(now)).filter((f) => {
+        if (f.status === "broken") return true;
         if (f.errorCount === 0 || !f.lastFetchedAt) return true;
         return now >= new Date(f.lastFetchedAt).getTime() + backoffMinutes(f.errorCount) * 60_000;
       });
@@ -63,7 +74,6 @@ export class Poller {
   async refreshFeed(feedId: string): Promise<RefreshResult> {
     const feed = this.storage.getFeed(feedId);
     if (!feed) return { newArticles: 0, error: "feed not found" };
-    if (feed.status === "broken") return { newArticles: 0, error: "feed broken" };
 
     let parsed: Awaited<ReturnType<typeof parseFeed>> | null = null;
     let etag: string | null = null;
@@ -86,29 +96,38 @@ export class Poller {
         parsed = await parseFeed(res.body);
       }
     } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
       const errorCount = feed.errorCount + 1;
       this.storage.updateFeedFetchState(feedId, {
         lastFetchedAt: new Date().toISOString(),
+        lastError: error,
         fetchIntervalMin: feed.fetchIntervalMin,
         errorCount,
         status: errorCount >= BROKEN_THRESHOLD ? "broken" : "ok",
       });
-      return { newArticles: 0, error: e instanceof Error ? e.message : String(e) };
+      return { newArticles: 0, error };
     }
 
     if (notModified) {
       this.storage.updateFeedFetchState(feedId, {
         lastFetchedAt: new Date().toISOString(),
+        lastError: null,
         fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, false),
         errorCount: 0, status: "ok",
       });
       return { newArticles: 0, notModified: true };
     }
-    const inserted = this.storage.upsertArticles(feedId, parsed!.articles, sanitizeHtml);
+    const inserted = this.storage.upsertArticles(
+      feedId,
+      parsed!.articles,
+      sanitizeHtml,
+      parsed!.siteUrl ?? feed.siteUrl ?? feed.url,
+    );
     this.storage.updateFeedFetchState(feedId, {
       etag,
       lastModified,
       lastFetchedAt: new Date().toISOString(),
+      lastError: null,
       fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, inserted.length > 0),
       errorCount: 0, status: "ok",
       title: parsed!.title,

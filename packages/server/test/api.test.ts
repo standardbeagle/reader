@@ -52,6 +52,14 @@ describe("api", () => {
     expect(list.json().feeds[0].unreadCount).toBe(1);
   });
 
+  it("refreshes an existing feed through the refresh endpoint", async () => {
+    const created = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml` } });
+    const refresh = await app.inject({ method: "POST", url: `/api/v1/feeds/${created.json().id}/refresh` });
+    expect(refresh.statusCode).toBe(200);
+    expect(refresh.json().notModified).toBe(true);
+    expect(refresh.json().feed.lastError).toBeNull();
+  });
+
   it("rejects an unreachable feed with 422", async () => {
     const res = await app.inject({
       method: "POST", url: "/api/v1/feeds",
@@ -123,6 +131,18 @@ describe("api", () => {
     const arts = await app.inject({ method: "GET", url: "/api/v1/articles" });
     const [a] = arts.json().articles;
     expect(a.readAt).toBeNull();
+    expect(a.contentHtml).toBeNull();
+
+    const deep = await app.inject({ method: "GET", url: `/api/v1/articles/${a.id}` });
+    expect(deep.statusCode).toBe(200);
+    expect(deep.json().id).toBe(a.id);
+    expect(deep.json().contentHtml).toContain("<p>one</p>");
+
+    const expanded = await app.inject({ method: "GET", url: "/api/v1/articles?content=1" });
+    expect(expanded.json().articles[0].contentHtml).toContain("<p>one</p>");
+
+    const missing = await app.inject({ method: "GET", url: "/api/v1/articles/not-an-article" });
+    expect(missing.statusCode).toBe(404);
 
     const rd = await app.inject({ method: "POST", url: `/api/v1/articles/${a.id}/read`, payload: { read: true } });
     expect(rd.statusCode).toBe(204);

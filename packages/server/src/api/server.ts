@@ -15,6 +15,8 @@ export interface ServerOptions {
   ingestorTickMs?: number;
 }
 
+const BACKGROUND_START_DELAY_MS = 8_000;
+
 export async function createServer(opts: ServerOptions): Promise<FastifyInstance> {
   const storage = createSqliteStorage(opts.dbPath);
   const poller = new Poller(storage, opts.tickMs !== undefined ? { tickMs: opts.tickMs } : {});
@@ -34,12 +36,19 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
     engineTicking = false;
   };
   let engineTimer: NodeJS.Timeout | null = null;
+  let engineStartupTimer: NodeJS.Timeout | null = null;
   if (opts.poller !== false) {
     engineTimer = setInterval(() => {
       runEngineTick().catch(() => {});
     }, opts.ingestorTickMs ?? 60_000);
     engineTimer.unref();
-    runEngineTick().catch(() => {});
+    // Keep the first request responsive after a restart. Ingestor work can
+    // start shortly after the RSS poller's delayed initial pass.
+    engineStartupTimer = setTimeout(() => {
+      engineStartupTimer = null;
+      runEngineTick().catch(() => {});
+    }, Math.min(BACKGROUND_START_DELAY_MS, opts.ingestorTickMs ?? 60_000));
+    engineStartupTimer.unref();
   }
 
   app.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body, done) => {
@@ -68,6 +77,7 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   }
   app.addHook("onClose", async () => {
     if (engineTimer) clearInterval(engineTimer);
+    if (engineStartupTimer) clearTimeout(engineStartupTimer);
     poller.stop();
     storage.close();
   });

@@ -11,6 +11,7 @@ export interface Feed {
   etag: string | null;
   lastModified: string | null;
   lastFetchedAt: string | null;
+  lastError: string | null;
   fetchIntervalMin: number;
   errorCount: number;
   status: "ok" | "broken";
@@ -27,6 +28,7 @@ export interface Article {
   publishedAt: string | null;
   contentHtml: string | null;
   summary: string | null;
+  imageUrl: string | null;
   fetchedAt: string;
 }
 
@@ -40,12 +42,15 @@ export interface ArticleQuery {
   unreadOnly?: boolean;
   before?: string; // ISO date cursor on published_at
   limit: number;
+  /** Keep list responses light unless a caller explicitly needs article content. */
+  includeContent?: boolean;
 }
 
 export interface FetchState {
   etag?: string | null;
   lastModified?: string | null;
   lastFetchedAt: string;
+  lastError?: string | null;
   fetchIntervalMin: number;
   errorCount: number;
   status: "ok" | "broken";
@@ -99,8 +104,9 @@ export interface Storage {
   deleteFeed(id: string): void;
   dueFeeds(now: Date): Feed[];
   updateFeedFetchState(id: string, state: FetchState): void;
-  upsertArticles(feedId: string, articles: ParsedArticle[], sanitize: (html: string) => string): Article[];
+  upsertArticles(feedId: string, articles: ParsedArticle[], sanitize: (html: string, baseUrl?: string) => string, baseUrl?: string): Article[];
   listArticles(q: ArticleQuery): ArticleWithState[];
+  getArticle(userId: string, articleId: string): ArticleWithState | null;
   setRead(userId: string, articleId: string, read: boolean): void;
   markAllRead(userId: string, feedId: string): void;
   unreadCounts(userId: string): Record<string, number>;

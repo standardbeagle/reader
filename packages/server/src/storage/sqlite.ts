@@ -6,9 +6,18 @@ import type {
   Storage, User, Feed, Article, ArticleWithState, ArticleQuery, FetchState,
   NormalizedItem, Ingestor, IngestorPatch,
 } from "./types.js";
-import type { ParsedArticle } from "@reader/core";
+import { looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
 
 const LOCAL_USER_EMAIL = "local@reader";
+
+function resolveHttpUrl(raw: string, baseUrl?: string): string | null {
+  try {
+    const url = new URL(raw, baseUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 
 export function createSqliteStorage(path: string): Storage {
   const db = new Database(path);
@@ -56,6 +65,7 @@ export function createSqliteStorage(path: string): Storage {
       etag: (r.etag as string) ?? null,
       lastModified: (r.last_modified as string) ?? null,
       lastFetchedAt: (r.last_fetched_at as string) ?? null,
+      lastError: (r.last_error as string) ?? null,
       fetchIntervalMin: r.fetch_interval_min as number,
       errorCount: r.error_count as number,
       status: r.status as "ok" | "broken",
@@ -63,14 +73,24 @@ export function createSqliteStorage(path: string): Storage {
     };
   }
 
-  function rowToArticle(r: Record<string, unknown>): Article {
+  function rowToArticle(r: Record<string, unknown>, includeContent = true): Article {
+    const rawContent = includeContent ? (r.content_html as string) ?? null : null;
+    const rawSummary = includeContent ? (r.summary as string) ?? null : null;
+    const baseUrl = includeContent
+      ? (r.url as string) ?? (r.feed_site_url as string) ?? (r.feed_url as string) ?? undefined
+      : undefined;
+    const promotedSummary = !rawContent && looksLikeHtml(rawSummary) ? sanitizeHtml(rawSummary!, baseUrl) : null;
+    const contentHtml = rawContent
+      ? sanitizeHtml(looksLikeHtml(rawContent) ? rawContent : plainTextToHtml(rawContent), baseUrl)
+      : promotedSummary;
     return {
       id: r.id as string, feedId: r.feed_id as string, guid: r.guid as string,
       url: (r.url as string) ?? null, title: r.title as string,
       author: (r.author as string) ?? null,
       publishedAt: (r.published_at as string) ?? null,
-      contentHtml: (r.content_html as string) ?? null,
-      summary: (r.summary as string) ?? null,
+      contentHtml,
+      summary: promotedSummary ? null : rawSummary,
+      imageUrl: includeContent ? (r.image_url as string) ?? null : null,
       fetchedAt: r.fetched_at as string,
     };
   }
@@ -131,10 +151,18 @@ export function createSqliteStorage(path: string): Storage {
       // datetime() output (space separator) would misorder.
       const rows = db.prepare(`
         SELECT * FROM feeds
-        WHERE status = 'ok'
-          AND (last_fetched_at IS NULL
-               OR julianday(last_fetched_at) <= julianday(?) - fetch_interval_min / 1440.0)
-      `).all(now.toISOString()) as Record<string, unknown>[];
+        WHERE url NOT LIKE 'ingestor://%' AND (
+          (
+            status = 'ok'
+            AND (last_fetched_at IS NULL
+                 OR julianday(last_fetched_at) <= julianday(?) - fetch_interval_min / 1440.0)
+          ) OR (
+            status = 'broken'
+            AND (last_fetched_at IS NULL
+                 OR julianday(last_fetched_at) <= julianday(?) - MIN(fetch_interval_min, 60) / 1440.0)
+          )
+        )
+      `).all(now.toISOString(), now.toISOString()) as Record<string, unknown>[];
       return rows.map(rowToFeed);
     },
 
@@ -144,6 +172,7 @@ export function createSqliteStorage(path: string): Storage {
           etag = COALESCE(?, etag),
           last_modified = COALESCE(?, last_modified),
           last_fetched_at = ?,
+          last_error = ?,
           fetch_interval_min = ?,
           error_count = ?,
           status = ?,
@@ -152,40 +181,63 @@ export function createSqliteStorage(path: string): Storage {
         WHERE id = ?
       `).run(
         state.etag ?? null, state.lastModified ?? null, state.lastFetchedAt,
+        state.lastError ?? null,
         state.fetchIntervalMin, state.errorCount, state.status,
         state.title ?? null, state.siteUrl ?? null, id,
       );
     },
 
-    upsertArticles(feedId, articles: ParsedArticle[], sanitize): Article[] {
+    upsertArticles(feedId, articles: ParsedArticle[], sanitize, baseUrl): Article[] {
       const insert = db.prepare(`
-        INSERT INTO articles (id, feed_id, guid, url, title, author, published_at, content_html, summary, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles (id, feed_id, guid, url, title, author, published_at, content_html, summary, image_url, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (feed_id, guid) DO NOTHING
       `);
-      const findUser = db.prepare("SELECT user_id FROM feeds WHERE id = ?");
-      const feedRow = findUser.get(feedId) as { user_id: string } | undefined;
+      const updateExisting = db.prepare(`
+        UPDATE articles SET
+          url = ?, title = ?, author = ?, published_at = ?,
+          content_html = COALESCE(?, content_html),
+          summary = CASE WHEN ? IS NOT NULL THEN ? ELSE summary END,
+          image_url = COALESCE(?, image_url),
+          fetched_at = ?
+        WHERE feed_id = ? AND guid = ?
+      `);
+      const findUser = db.prepare("SELECT user_id, url, site_url FROM feeds WHERE id = ?");
+      const feedRow = findUser.get(feedId) as { user_id: string; url: string; site_url: string | null } | undefined;
       if (!feedRow) throw new Error("feed not found: " + feedId);
       const userId = feedRow.user_id;
+      const resolvedBaseUrl = baseUrl ?? feedRow.site_url ?? feedRow.url;
       const inserted: Article[] = [];
       const tx = db.transaction(() => {
         for (const a of articles) {
           const id = randomUUID();
           const now = new Date().toISOString();
-          const contentHtml = a.contentHtml ? sanitize(a.contentHtml) : null;
+          const rawContent = a.contentHtml?.trim() || null;
+          const rawSummary = a.summary?.trim() || null;
+          const contentSource = rawContent ?? (looksLikeHtml(rawSummary) ? rawSummary : null);
+          const contentHtml = contentSource
+            ? sanitize(looksLikeHtml(contentSource) ? contentSource : plainTextToHtml(contentSource), a.url ?? resolvedBaseUrl)
+            : null;
+          const summary = rawContent ? rawSummary : contentSource ? null : rawSummary;
+          const imageUrl = a.imageUrl ? resolveHttpUrl(a.imageUrl, a.url ?? resolvedBaseUrl) : null;
           const res = insert.run(
             id, feedId, a.guid, a.url, a.title, a.author,
             a.publishedAt ? a.publishedAt.toISOString() : null,
             contentHtml,
-            a.summary, now,
+            summary, imageUrl, now,
           );
           if (res.changes > 0) {
             insertUserArticleIfNew.run(userId, id, userId, id);
             inserted.push({
               id, feedId, guid: a.guid, url: a.url, title: a.title, author: a.author,
               publishedAt: a.publishedAt ? a.publishedAt.toISOString() : null,
-              contentHtml, summary: a.summary, fetchedAt: now,
+              contentHtml, summary, imageUrl, fetchedAt: now,
             });
+          } else {
+            updateExisting.run(
+              a.url, a.title, a.author, a.publishedAt ? a.publishedAt.toISOString() : null,
+              contentHtml, contentHtml, summary, imageUrl, now, feedId, a.guid,
+            );
           }
         }
       });
@@ -194,14 +246,19 @@ export function createSqliteStorage(path: string): Storage {
     },
 
     listArticles(q: ArticleQuery): ArticleWithState[] {
+      const includeContent = q.includeContent !== false;
       const clauses = ["f.user_id = ?"];
       const params: unknown[] = [q.userId];
       if (q.feedId) { clauses.push("a.feed_id = ?"); params.push(q.feedId); }
       if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
       if (q.before) { clauses.push("a.published_at < ?"); params.push(q.before); }
       params.push(q.limit);
+      const articleColumns = includeContent
+        ? "a.*"
+        : `a.id, a.feed_id, a.guid, a.url, a.title, a.author, a.published_at,
+           NULL AS content_html, NULL AS summary, NULL AS image_url, a.fetched_at`;
       const rows = db.prepare(`
-        SELECT a.*, ua.read_at
+        SELECT ${articleColumns}, ua.read_at
         FROM articles a
         JOIN feeds f ON f.id = a.feed_id
         LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
@@ -209,7 +266,18 @@ export function createSqliteStorage(path: string): Storage {
         ORDER BY a.published_at IS NULL, a.published_at DESC, a.fetched_at DESC, a.id
         LIMIT ?
       `).all(q.userId, ...params) as Record<string, unknown>[];
-      return rows.map((r) => ({ ...rowToArticle(r), readAt: (r.read_at as string) ?? null }));
+      return rows.map((r) => ({ ...rowToArticle(r, includeContent), readAt: (r.read_at as string) ?? null }));
+    },
+
+    getArticle(userId, articleId): ArticleWithState | null {
+      const row = db.prepare(`
+        SELECT a.*, ua.read_at, f.site_url AS feed_site_url, f.url AS feed_url
+        FROM articles a
+        JOIN feeds f ON f.id = a.feed_id
+        LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
+        WHERE a.id = ? AND f.user_id = ?
+      `).get(userId, articleId, userId) as Record<string, unknown> | undefined;
+      return row ? { ...rowToArticle(row), readAt: (row.read_at as string) ?? null } : null;
     },
 
     setRead(userId, articleId, read) {

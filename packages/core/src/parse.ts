@@ -1,28 +1,64 @@
 import Parser from "rss-parser";
 import { createHash } from "node:crypto";
 import type { ParsedFeed, ParsedArticle } from "./types.js";
+import { looksLikeHtml } from "./content.js";
 
-const parser = new Parser();
+const parser = new Parser({
+  customFields: {
+    item: [
+      ["media:thumbnail", "media:thumbnail", { keepArray: true }],
+      ["media:content", "media:content", { keepArray: true }],
+    ],
+  },
+});
+
+function firstMediaUrl(value: unknown): string | null {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (typeof candidate === "string") return candidate.trim() || null;
+  if (!candidate || typeof candidate !== "object") return null;
+  const object = candidate as Record<string, unknown>;
+  const attributes = object.$;
+  if (attributes && typeof attributes === "object") {
+    const url = (attributes as Record<string, unknown>).url;
+    if (typeof url === "string" && url.trim()) return url.trim();
+  }
+  const url = object.url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
+}
+
+function mediaUrl(item: Record<string, unknown>): string | null {
+  return firstMediaUrl(item.enclosure)
+    ?? firstMediaUrl(item["media:thumbnail"])
+    ?? firstMediaUrl(item["media:content"]);
+}
 
 export async function parseFeed(xml: string): Promise<ParsedFeed> {
   const raw = await parser.parseString(xml);
   const articles: ParsedArticle[] = (raw.items ?? []).map((item) => {
-    const it = item;
-    const title = it.title?.trim() || "(untitled)";
-    const url = it.link ?? null;
-    const published = it.isoDate ?? it.pubDate ?? null;
+    const it = item as unknown as Record<string, unknown>;
+    const title = typeof it.title === "string" ? it.title.trim() || "(untitled)" : "(untitled)";
+    const url = typeof it.link === "string" ? it.link : null;
+    const published = typeof it.isoDate === "string" ? it.isoDate : typeof it.pubDate === "string" ? it.pubDate : null;
     const parsedDate = published ? new Date(published) : null;
-    const explicitGuid = it.guid ?? it.id ?? null;
+    const explicitGuid = typeof it.guid === "string" ? it.guid : typeof it.id === "string" ? it.id : null;
     const guid = explicitGuid
       ?? `sha1:${createHash("sha1").update(`${url ?? ""}|${title}|${published ?? ""}`).digest("hex")}`;
+    const rawContent = typeof it["content:encoded"] === "string"
+      ? it["content:encoded"]
+      : typeof it.content === "string" ? it.content : null;
+    const rawSummary = typeof it.summary === "string"
+      ? it.summary
+      : typeof it.contentSnippet === "string" ? it.contentSnippet : null;
+    const contentHtml = rawContent ?? (looksLikeHtml(rawSummary) ? rawSummary : null);
     return {
       guid,
       url,
       title,
-      author: it.creator ?? it.author ?? null,
+      author: typeof it.creator === "string" ? it.creator : typeof it.author === "string" ? it.author : null,
       publishedAt: parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null,
-      contentHtml: it["content:encoded"] ?? it.content ?? null,
-      summary: it.summary ?? it.contentSnippet ?? null,
+      contentHtml,
+      summary: rawContent ? rawSummary : contentHtml ? null : rawSummary,
+      imageUrl: mediaUrl(it),
     };
   });
   return {

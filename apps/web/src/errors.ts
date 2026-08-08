@@ -23,6 +23,20 @@ const catalog: Record<string, ErrorInfo> = {
       "If the site blocks automated access, look for an official mirror or newsletter",
     ],
   },
+  feed_refresh_failed: {
+    title: "Couldn't refresh this feed",
+    explanation: "The feed is still unavailable or did not return readable RSS or Atom content. Reader will keep retrying it automatically.",
+    steps: [
+      "Try again in a moment",
+      "Check the feed address in a browser if the problem continues",
+      "A successful retry will clear the warning and reset the error count",
+    ],
+  },
+  feed_managed: {
+    title: "This feed is managed by an ingestor",
+    explanation: "Its source is refreshed by the configured platform ingestor instead of the RSS poller.",
+    steps: ["Use the ingestor settings to change its pace or test the source"],
+  },
   no_feeds_found: {
     title: "No feeds found on that site",
     explanation: "We checked the page's metadata and the common feed locations, but this site doesn't appear to publish an RSS or Atom feed.",

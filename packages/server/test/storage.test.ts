@@ -35,14 +35,34 @@ describe("sqlite storage", () => {
   it("upserts articles and dedupes by guid", () => {
     const feed = makeFeed();
     const arts = [
-      { guid: "g1", url: null, title: "T1", author: null, publishedAt: null, contentHtml: "<p>x</p>", summary: null },
+      { guid: "g1", url: null, title: "T1", author: null, publishedAt: null, contentHtml: "<p>x</p>", summary: null, imageUrl: "/cover.jpg" },
       { guid: "g2", url: null, title: "T2", author: null, publishedAt: null, contentHtml: null, summary: "s" },
     ];
     const inserted1 = storage.upsertArticles(feed.id, arts, identity);
     const inserted2 = storage.upsertArticles(feed.id, arts, identity);
     expect(inserted1).toHaveLength(2);
+    expect(inserted1[0]!.imageUrl).toBe("https://a.example.com/cover.jpg");
     expect(inserted2).toHaveLength(0);
     expect(storage.listArticles({ userId, limit: 50 })).toHaveLength(2);
+  });
+
+  it("promotes markup summaries and formats plain feed bodies", () => {
+    const feed = makeFeed();
+    storage.upsertArticles(feed.id, [
+      { guid: "html-summary", url: "https://a.example.com/quote", title: "Quote", author: null, publishedAt: null, contentHtml: null, summary: "<blockquote><p>Quoted</p></blockquote>" },
+      { guid: "plain", url: null, title: "Plain", author: null, publishedAt: null, contentHtml: "One line\n\nSecond line", summary: null },
+    ], identity);
+    const listed = storage.listArticles({ userId, limit: 50 });
+    const quote = listed.find((a) => a.guid === "html-summary");
+    const plain = listed.find((a) => a.guid === "plain");
+    expect(quote?.contentHtml).toContain("<blockquote>");
+    expect(quote?.summary).toBeNull();
+    expect(plain?.contentHtml).toContain('class="feed-plain-text"');
+    expect(plain?.contentHtml).toContain("Second line");
+
+    const compact = storage.listArticles({ userId, limit: 50, includeContent: false });
+    expect(compact.find((a) => a.guid === "html-summary")?.contentHtml).toBeNull();
+    expect(compact.find((a) => a.guid === "plain")?.summary).toBeNull();
   });
 
   it("tracks read state per user", () => {
@@ -101,7 +121,7 @@ describe("sqlite storage", () => {
     }
   });
 
-  it("dueFeeds respects interval and skips broken feeds", () => {
+  it("dueFeeds respects interval and schedules broken feeds for recovery", () => {
     const feed = makeFeed();
     const past = new Date(Date.now() - 2 * 3600_000);
     storage.updateFeedFetchState(feed.id, {
@@ -114,6 +134,19 @@ describe("sqlite storage", () => {
     expect(storage.dueFeeds(new Date()).map((f) => f.id)).not.toContain(feed.id);
     storage.updateFeedFetchState(feed.id, {
       lastFetchedAt: past.toISOString(), fetchIntervalMin: 60, errorCount: 10, status: "broken",
+    });
+    expect(storage.dueFeeds(new Date()).map((f) => f.id)).toContain(feed.id);
+    storage.updateFeedFetchState(feed.id, {
+      lastFetchedAt: new Date().toISOString(), fetchIntervalMin: 60, errorCount: 10, status: "broken",
+    });
+    expect(storage.dueFeeds(new Date()).map((f) => f.id)).not.toContain(feed.id);
+  });
+
+  it("does not send ingestor-backed feeds through the RSS poller", () => {
+    const feed = storage.createFeed(userId, { url: "ingestor://mastodon/example", title: "Mastodon", siteUrl: null });
+    const past = new Date(Date.now() - 2 * 3600_000);
+    storage.updateFeedFetchState(feed.id, {
+      lastFetchedAt: past.toISOString(), fetchIntervalMin: 60, errorCount: 0, status: "ok",
     });
     expect(storage.dueFeeds(new Date()).map((f) => f.id)).not.toContain(feed.id);
   });

@@ -80,6 +80,44 @@ describe("Poller.refreshFeed", () => {
     expect(storage.getFeed(feed.id)!.status).toBe("broken");
   });
 
+  it("recovers a broken feed when the source becomes healthy", async () => {
+    const { feed } = subscribe(`${baseUrl}/broken.xml`);
+    const poller = new Poller(storage);
+    for (let i = 0; i < 10; i++) await poller.refreshFeed(feed.id);
+    expect(storage.getFeed(feed.id)!.status).toBe("broken");
+
+    const source = state.get("/broken.xml")!;
+    delete source.statusOnRequest;
+    source.xml = RSS;
+    const result = await poller.refreshFeed(feed.id);
+
+    expect(result.error).toBeUndefined();
+    expect(storage.getFeed(feed.id)!.status).toBe("ok");
+    expect(storage.getFeed(feed.id)!.errorCount).toBe(0);
+    expect(storage.getFeed(feed.id)!.lastError).toBeNull();
+    expect(storage.listArticles({ userId: storage.getOrCreateLocalUser().id, limit: 50 })).toHaveLength(1);
+  });
+
+  it("automatically retries a broken feed after its recovery interval", async () => {
+    const { feed } = subscribe(`${baseUrl}/broken.xml`);
+    const poller = new Poller(storage);
+    for (let i = 0; i < 10; i++) await poller.refreshFeed(feed.id);
+    const source = state.get("/broken.xml")!;
+    delete source.statusOnRequest;
+    source.xml = RSS;
+    storage.updateFeedFetchState(feed.id, {
+      lastFetchedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      fetchIntervalMin: 60,
+      errorCount: 10,
+      status: "broken",
+    });
+
+    await poller.tick();
+
+    expect(storage.getFeed(feed.id)!.status).toBe("ok");
+    expect(source.requestCount).toBe(11);
+  });
+
   it("rejects bodies over the size cap and counts the error", async () => {
     const { feed } = subscribe(`${baseUrl}/huge.xml`);
     const poller = new Poller(storage);

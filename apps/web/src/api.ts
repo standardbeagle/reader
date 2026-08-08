@@ -1,14 +1,20 @@
 export interface Feed {
   id: string; url: string; title: string; siteUrl: string | null;
   unreadCount: number; status: "ok" | "broken";
+  lastFetchedAt: string | null; lastError: string | null; errorCount: number;
 }
 export interface Article {
   id: string; feedId: string; title: string; url: string | null;
   author: string | null; publishedAt: string | null;
-  contentHtml: string | null; summary: string | null; readAt: string | null;
+  contentHtml: string | null; summary: string | null; imageUrl?: string | null; readAt: string | null;
 }
 export interface DiscoveredFeed { url: string; title: string; kind: "rss" | "atom" | "json" }
 export type SubscribeResult = { status: "subscribed"; feed: Feed } | { status: "choices"; feeds: DiscoveredFeed[] };
+export interface FeedRefreshResult {
+  feed: Feed | null;
+  newArticles: number;
+  notModified?: boolean;
+}
 
 export interface Ingestor {
   id: string; kind: "mastodon" | "bluesky" | "reddit"; config: Record<string, unknown>;
@@ -56,6 +62,7 @@ async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Pr
 
 export const api = {
   listFeeds: () => req<{ feeds: Feed[] }>("/api/v1/feeds").then((r) => r.feeds),
+  refreshFeed: (id: string) => req<FeedRefreshResult>(`/api/v1/feeds/${id}/refresh`, { method: "POST" }),
   subscribe: async (url: string): Promise<SubscribeResult> => {
     let res: Response;
     try {
@@ -78,6 +85,7 @@ export const api = {
     if (params.unread) q.set("unread", "1");
     return req<{ articles: Article[] }>(`/api/v1/articles?${q}`).then((r) => r.articles);
   },
+  getArticle: (id: string) => req<Article>(`/api/v1/articles/${encodeURIComponent(id)}`),
   setRead: (id: string, read: boolean) =>
     req<void>(`/api/v1/articles/${id}/read`, { method: "POST", json: { read } }),
   markAllRead: (feedId: string) =>

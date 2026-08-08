@@ -5,12 +5,31 @@ import { discoverFeeds } from "../discovery/discover.js";
 
 interface SubscribeBody { url?: string }
 interface ReadBody { read?: boolean }
-interface ArticleQuery { feed_id?: string; unread?: string; before?: string; limit?: string }
+interface ArticleQuery { feed_id?: string; unread?: string; before?: string; limit?: string; content?: string }
 
 export function registerRoutes(app: FastifyInstance, storage: Storage, poller: Poller): void {
   const userId = () => storage.getOrCreateLocalUser().id;
 
   app.get("/api/v1/health", async () => ({ ok: true }));
+
+  app.post<{ Params: { id: string } }>("/api/v1/feeds/:id/refresh", async (req, reply) => {
+    const feed = storage.getFeed(req.params.id);
+    if (!feed) {
+      return reply.code(404).send({ error: { code: "not_found", message: "feed not found" } });
+    }
+    if (feed.url.startsWith("ingestor://")) {
+      return reply.code(409).send({ error: { code: "feed_managed", message: "this feed is refreshed by its ingestor" } });
+    }
+    const result = await poller.refreshFeed(feed.id);
+    const updated = storage.getFeed(feed.id);
+    if (result.error) {
+      return reply.code(502).send({
+        error: { code: "feed_refresh_failed", message: result.error },
+        feed: updated,
+      });
+    }
+    return { feed: updated, ...result };
+  });
 
   app.post<{ Body: SubscribeBody }>("/api/v1/feeds/discover", async (req, reply) => {
     const url = req.body?.url?.trim();
@@ -97,8 +116,17 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
       unreadOnly: req.query.unread === "1",
       ...(req.query.before ? { before: req.query.before } : {}),
       limit,
+      includeContent: req.query.content === "1",
     });
     return { articles };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/v1/articles/:id", async (req, reply) => {
+    const article = storage.getArticle(userId(), req.params.id);
+    if (!article) {
+      return reply.code(404).send({ error: { code: "not_found", message: "article not found" } });
+    }
+    return article;
   });
 
   app.post<{ Params: { id: string }; Body: ReadBody }>("/api/v1/articles/:id/read", async (req, reply) => {

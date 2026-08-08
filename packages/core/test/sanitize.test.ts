@@ -32,14 +32,38 @@ describe("sanitizeHtml", () => {
     expect(out).toContain('referrerpolicy="no-referrer"');
   });
 
-  it("excludes dangerous tags (style, iframe, form, svg, script)", () => {
+  it("keeps safe media and formula markup while sandboxing embeds", () => {
     const out = sanitizeHtml(
-      '<style>body{display:none}</style><iframe src="https://evil.example"></iframe><form><input></form><svg><script>alert(1)</script></svg>'
+      '<figure><img src="/cover.jpg"><figcaption>cover</figcaption></figure>' +
+      '<video src="/movie.mp4"></video><audio src="/sound.mp3"></audio>' +
+      '<iframe src="https://player.example/embed/1"></iframe>' +
+      '<math><mrow><mi>x</mi><mo>=</mo><mn>1</mn></mrow></math>',
+      "https://example.com/posts/one",
+    );
+    expect(out).toContain('src="https://example.com/cover.jpg"');
+    expect(out).toContain('src="https://example.com/movie.mp4"');
+    expect(out).toContain('controls=""');
+    expect(out).toContain('sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts"');
+    expect(out).toContain("<math>");
+    expect(out).toContain("<mi>x</mi>");
+  });
+
+  it("excludes dangerous tags and unsafe media URLs", () => {
+    const out = sanitizeHtml(
+      '<style>body{display:none}</style><iframe src="javascript:alert(1)"></iframe><form><input></form><svg><script>alert(1)</script></svg>'
     );
     expect(out).not.toContain("<style");
     expect(out).not.toContain("<iframe");
     expect(out).not.toContain("<form");
     expect(out).not.toContain("<svg");
     expect(out).not.toContain("<script");
+  });
+
+  it("turns supported custom video embeds into sandboxed iframes", () => {
+    const out = sanitizeHtml('<lite-youtube videoid="dQw4w9WgXcQ" title="Demo"></lite-youtube>');
+    expect(out).toContain('src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"');
+    expect(out).toContain('title="Demo"');
+    expect(out).toContain('referrerpolicy="strict-origin-when-cross-origin"');
+    expect(out).toContain('sandbox="allow-same-origin allow-forms allow-modals allow-popups allow-presentation allow-scripts"');
   });
 });

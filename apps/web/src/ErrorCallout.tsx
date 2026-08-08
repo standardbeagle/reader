@@ -1,9 +1,9 @@
 import { describeError } from "./errors";
 
-export function ErrorCallout(props: { code: string | null; onDismiss: () => void }) {
+export function ErrorCallout(props: { code: string | null; id?: string; onDismiss: () => void }) {
   const info = describeError(props.code);
   return (
-    <div className="callout" role="alert">
+    <div id={props.id} className="callout" role="alert">
       <h3>{info.title}</h3>
       <p>{info.explanation}</p>
       <ol>{info.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>

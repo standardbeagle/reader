@@ -2,11 +2,17 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFeed } from "../src/parse.js";
+import { plainTextToHtml } from "../src/content.js";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dirname, "fixtures", name), "utf8");
 
 describe("parseFeed", () => {
+  it("decodes common entities when preserving plain feed text", () => {
+    expect(plainTextToHtml("One &gt; two &amp; three\n\n&lt;tap&gt;")).toContain("One &gt; two &amp; three");
+    expect(plainTextToHtml("One &gt; two &amp; three\n\n&lt;tap&gt;")).not.toContain("&amp;gt;");
+  });
+
   it("parses RSS 2.0 with title, site url and items", async () => {
     const feed = await parseFeed(fixture("rss2.xml"));
     expect(feed.title).toBe("Example Blog");
@@ -26,6 +32,26 @@ describe("parseFeed", () => {
     expect(feed.title).toBe("Atom Blog");
     expect(feed.articles).toHaveLength(1);
     expect(feed.articles[0]!.guid).toBe("tag:example.com,2026:1");
+  });
+
+  it("promotes HTML summaries and keeps enclosure media", async () => {
+    const feed = await parseFeed(`<?xml version="1.0"?>
+      <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
+        <channel><title>Media</title><link>https://example.com</link><item>
+          <title>Quote</title><link>https://example.com/quote</link>
+          <description>Short summary</description>
+          <content:encoded><![CDATA[<blockquote><p>Quoted</p></blockquote>]]></content:encoded>
+          <enclosure url="https://example.com/cover.jpg" type="image/jpeg" />
+        </item><item>
+          <title>Summary body</title><link>https://example.com/summary</link>
+          <description><![CDATA[<p>Body in summary</p>]]></description>
+          <media:thumbnail url="https://example.com/thumb.jpg" />
+        </item></channel>
+      </rss>`);
+    expect(feed.articles[0]!.contentHtml).toContain("<blockquote>");
+    expect(feed.articles[0]!.imageUrl).toBe("https://example.com/cover.jpg");
+    expect(feed.articles[1]!.contentHtml).toContain("<p>Body in summary</p>");
+    expect(feed.articles[1]!.imageUrl).toBe("https://example.com/thumb.jpg");
   });
 
   it("synthesizes a stable guid when missing", async () => {

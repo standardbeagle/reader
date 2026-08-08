@@ -6,6 +6,8 @@ export function ArticleList(props: {
   loading: boolean;
   selectedId: string | null;
   onSelect: (a: Article) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const qc = useQueryClient();
   const setRead = useMutation({
@@ -16,9 +18,23 @@ export function ArticleList(props: {
     },
   });
 
+  if (props.collapsed) {
+    return (
+      <section id="article-list-panel" className="list collapsed" role="region" aria-label="Article list">
+        <button className="panel-rail" onClick={props.onToggleCollapsed} aria-label="Expand article list column" aria-expanded={false} aria-controls="article-list-panel">
+          <span aria-hidden="true">›</span><span className="rail-label">Articles</span>
+        </button>
+      </section>
+    );
+  }
+
   if (props.loading) {
     return (
-      <section className="list" role="region" aria-label="Article list">
+      <section id="article-list-panel" className="list" role="region" aria-label="Article list" aria-busy="true">
+        <div className="panel-head">
+          <h2>Articles</h2>
+          <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
+        </div>
         <div className="skel">
           {[0, 1, 2, 3, 4, 5].map((i) => <div className="bar" key={i} />)}
         </div>
@@ -27,14 +43,22 @@ export function ArticleList(props: {
   }
   if (props.articles.length === 0) {
     return (
-      <section className="list" role="region" aria-label="Article list">
+      <section id="article-list-panel" className="list" role="region" aria-label="Article list">
+        <div className="panel-head">
+          <h2>Articles</h2>
+          <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
+        </div>
         <div className="empty">No articles.</div>
       </section>
     );
   }
 
   return (
-    <section className="list" role="region" aria-label="Article list">
+    <section id="article-list-panel" className="list" role="region" aria-label="Article list">
+      <div className="panel-head">
+        <h2>Articles</h2>
+        <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
+      </div>
       <ul>
         {props.articles.map((a, index) => (
           <li
