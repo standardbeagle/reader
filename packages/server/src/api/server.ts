@@ -27,7 +27,16 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
       ? createOpenRouterClient({ apiKey: process.env.OPENROUTER_API_KEY, model: process.env.READER_LLM_MODEL ?? "google/gemini-2.0-flash-001" })
       : null;
   const engine = new IngestorEngine(storage, llm, opts.ingestorAdapters);
-  const app = Fastify({ logger: true });
+  // Declared caps for this listener (AGENTS.md: every listener names its ceilings).
+  // Loopback posture, but unbounded is a defect regardless of exposure.
+  const app = Fastify({
+    logger: true,
+    bodyLimit: 1_048_576, // 1 MiB — API bodies are small JSON
+    connectionTimeout: 10_000,
+    keepAliveTimeout: 30_000,
+    requestTimeout: 30_000,
+  });
+  app.server.maxConnections = 256;
   let engineTicking = false;
   const runEngineTick = async () => {
     if (engineTicking) return;
