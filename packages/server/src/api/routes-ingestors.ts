@@ -18,6 +18,28 @@ const DIGEST_MODES = ["realtime", "hourly", "daily"];
 
 const SECRET_KEYS = new Set(["appPassword", "clientSecret", "password"]);
 
+/**
+ * Remove `_`-prefixed keys from a client-supplied config. Adapters honor keys
+ * like `_baseUrl`/`_tokenBase`/`_oauthBase` as test seams that redirect outbound
+ * requests; accepting them from an API caller is a credential-exfil channel
+ * (e.g. `_tokenBase` aims the OAuth Basic-auth POST at an attacker host). The
+ * HTTP boundary must never let them through.
+ */
+export function stripInternalKeys(config: Record<string, unknown>): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (!key.startsWith("_")) clean[key] = value;
+  }
+  return clean;
+}
+
+function boundaryConfig(config: Record<string, unknown>): Record<string, unknown> {
+  // Tests inject adapter/base overrides through `_`-prefixed keys, so the strip
+  // is disabled under Vitest — the same gate the SSRF guard uses.
+  if (process.env.VITEST === "true" || process.env.READER_ALLOW_PRIVATE_FETCH === "1") return config;
+  return stripInternalKeys(config);
+}
+
 function redactConfig(config: Record<string, unknown>): { config: Record<string, unknown>; hasCredentials: boolean } {
   let hasCredentials = false;
   const redacted: Record<string, unknown> = { ...config };
@@ -67,10 +89,11 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
   });
 
   app.post<{ Body: CreateBody }>("/api/v1/ingestors", async (req, reply) => {
-    const { kind, config } = req.body ?? {};
-    if (!kind || !KINDS.includes(kind) || !config || typeof config !== "object") {
+    const { kind, config: rawConfig } = req.body ?? {};
+    if (!kind || !KINDS.includes(kind) || !rawConfig || typeof rawConfig !== "object") {
       return reply.code(400).send({ error: { code: "invalid_ingestor", message: "kind (mastodon|bluesky|reddit) and config object are required" } });
     }
+    const config = boundaryConfig(rawConfig);
     if (req.body?.digestMode !== undefined && !DIGEST_MODES.includes(req.body.digestMode)) {
       return reply.code(400).send({ error: { code: "invalid_ingestor", message: "digestMode must be realtime|hourly|daily" } });
     }
@@ -133,13 +156,14 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
   });
 
   app.post<{ Body: { kind?: string; config?: Record<string, unknown>; threshold?: number; llmEnabled?: boolean } }>("/api/v1/ingestors/test", async (req, reply) => {
-    const { kind, config } = req.body ?? {};
-    if (!kind || !KINDS.includes(kind) || !config) {
+    const { kind, config: rawConfig } = req.body ?? {};
+    if (!kind || !KINDS.includes(kind) || !rawConfig) {
       return reply.code(400).send({ error: { code: "invalid_ingestor", message: "kind and config are required" } });
     }
     if (req.body?.llmEnabled !== false && !llmConfigured) {
       return reply.code(400).send({ error: { code: "llm_not_configured", message: "LLM filtering is on but the server has no OPENROUTER_API_KEY." } });
     }
+    const config = boundaryConfig(rawConfig);
     try {
       const result = await engine.testRun(kind, config, {
         threshold: Math.max(0, Math.min(10, req.body?.threshold ?? 5)),
