@@ -27,6 +27,13 @@ describe("parseFeed", () => {
     expect(first.contentHtml).toContain("<p>Full body</p>");
   });
 
+  it("rejects a feed carrying a DOCTYPE internal subset (XXE/billion-laughs)", async () => {
+    const xxe = `<?xml version="1.0"?>
+<!DOCTYPE rss [ <!ENTITY lol "lol"> ]>
+<rss version="2.0"><channel><title>x</title></channel></rss>`;
+    await expect(parseFeed(xxe)).rejects.toThrow(/DOCTYPE internal subset/);
+  });
+
   it("parses Atom feeds", async () => {
     const feed = await parseFeed(fixture("atom.xml"));
     expect(feed.title).toBe("Atom Blog");

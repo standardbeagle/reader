@@ -32,7 +32,16 @@ function mediaUrl(item: Record<string, unknown>): string | null {
     ?? firstMediaUrl(item["media:content"]);
 }
 
+// The transitive XML stack does not expand custom entities today, but a DOCTYPE
+// internal subset is the XXE / billion-laughs vector — reject it explicitly so a
+// future parser or option change cannot silently reintroduce the exposure. The
+// char cap bounds parse work independently of the byte cap enforced at fetch.
+const MAX_FEED_CHARS = 8 * 1024 * 1024;
+const DOCTYPE_SUBSET = /<!DOCTYPE[^>[]*\[/i;
+
 export async function parseFeed(xml: string): Promise<ParsedFeed> {
+  if (xml.length > MAX_FEED_CHARS) throw new Error("feed too large to parse");
+  if (DOCTYPE_SUBSET.test(xml)) throw new Error("feed contains a DOCTYPE internal subset");
   const raw = await parser.parseString(xml);
   const articles: ParsedArticle[] = (raw.items ?? []).map((item) => {
     const it = item as unknown as Record<string, unknown>;
