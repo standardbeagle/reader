@@ -4,6 +4,11 @@ import type { IngestorAdapter } from "./types.js";
 interface TokenEntry { token: string; expiresAt: number }
 const tokenCache = new Map<string, TokenEntry>();
 
+function pruneExpired(cache: Map<string, TokenEntry>): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
+}
+
 function redditCreds(config: Record<string, unknown>): { clientId: string; clientSecret: string; username?: string; password?: string } | null {
   const clientId = (config.clientId as string) ?? process.env.REDDIT_CLIENT_ID;
   const clientSecret = (config.clientSecret as string) ?? process.env.REDDIT_CLIENT_SECRET;
@@ -34,6 +39,7 @@ async function getToken(config: Record<string, unknown>, tokenBase: string, cach
   });
   if (!res.ok) throw new Error(`reddit auth failed: HTTP ${res.status}`);
   const data = (await res.json()) as { access_token: string; expires_in: number };
+  pruneExpired(tokenCache);
   tokenCache.set(cacheKey, { token: data.access_token, expiresAt: Date.now() + (data.expires_in - 120) * 1000 });
   return data.access_token;
 }

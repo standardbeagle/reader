@@ -11,6 +11,22 @@ interface SessionCacheEntry {
 
 const sessionCache = new Map<string, SessionCacheEntry>();
 
+function decodeJwtExpiry(jwt: string): number | null {
+  const payload = jwt.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { exp?: number };
+    return typeof claims.exp === "number" ? claims.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function pruneExpired(cache: Map<string, { expiresAt: number }>): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
+}
+
 function credentials(config: Record<string, unknown>): { identifier: string; appPassword: string } | null {
   const identifier = (config.identifier as string) ?? process.env.BLUESKY_IDENTIFIER;
   const appPassword = (config.appPassword as string) ?? process.env.BLUESKY_APP_PASSWORD;
@@ -29,7 +45,12 @@ async function getSession(config: Record<string, unknown>, authBase: string, cac
   });
   if (!res.ok) throw new Error(`bluesky auth failed: HTTP ${res.status}`);
   const data = (await res.json()) as { accessJwt: string };
-  sessionCache.set(cacheKey, { token: data.accessJwt, expiresAt: Date.now() + 100 * 60_000 });
+  // Cache to just under the token's real expiry; a 401 still forces re-auth if
+  // the estimate is wrong. Fall back to 100 min when the JWT carries no exp.
+  const exp = decodeJwtExpiry(data.accessJwt);
+  const expiresAt = exp ? exp - 60_000 : Date.now() + 100 * 60_000;
+  pruneExpired(sessionCache);
+  sessionCache.set(cacheKey, { token: data.accessJwt, expiresAt });
   return data.accessJwt;
 }
 
