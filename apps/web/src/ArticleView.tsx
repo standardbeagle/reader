@@ -2,15 +2,12 @@ import { useEffect, useState } from "react";
 import type { Article } from "./api";
 import { safeUrl } from "./urls";
 
-function looksLikeHtml(value: string | null): boolean {
-  return Boolean(value && /<\s*\/?\s*[a-z][^>]*>/i.test(value));
-}
-
 export function ArticleView(props: {
   article: Article | null;
   onBack?: (() => void) | undefined;
   loading?: boolean;
   requested?: boolean;
+  error?: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }) {
@@ -31,7 +28,7 @@ export function ArticleView(props: {
     return (
       <main id="reader-panel" className="reader empty" aria-label="Reader column">
         <div className="empty-reader">
-          <span>{props.loading ? "Loading article…" : props.requested ? "Article not found" : "Select an article"}</span>
+          <span>{props.loading ? "Loading article…" : props.error ? "Couldn't load this article." : props.requested ? "Article not found" : "Select an article"}</span>
           <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="reader-panel">Collapse reader</button>
         </div>
       </main>
@@ -39,9 +36,12 @@ export function ArticleView(props: {
   }
   const href = safeUrl(a.url);
   const imageHref = safeUrl(a.imageUrl ?? null);
-  const body = a.contentHtml?.trim() || a.summary?.trim() || null;
-  const bodyIsHtml = looksLikeHtml(body);
-  const hasLeadImageInBody = Boolean(imageHref && body?.includes(imageHref));
+  // contentHtml is sanitized server-side; summary is only ever plain text (the
+  // server promotes any HTML-looking summary into contentHtml). Render each in
+  // its own lane so raw feed bytes can never reach dangerouslySetInnerHTML.
+  const htmlBody = a.contentHtml?.trim() || null;
+  const textBody = htmlBody ? null : a.summary?.trim() || null;
+  const hasLeadImageInBody = Boolean(imageHref && htmlBody?.includes(imageHref));
   return (
     <main id="reader-panel" className="reader" aria-label="Article reader">
       <div className="article">
@@ -93,23 +93,23 @@ export function ArticleView(props: {
           </section>
         ) : (
           <div id="reader-content-panel" role={href ? "tabpanel" : undefined} aria-labelledby={href ? "reader-tab" : undefined}>
-            {body && bodyIsHtml
+            {htmlBody
               ? <>
                   {imageHref && !hasLeadImageInBody && (
                     <figure className="article-lead-media">
                       <img src={imageHref} alt="" loading="lazy" referrerPolicy="no-referrer" />
                     </figure>
                   )}
-                  <article className="article-content" dangerouslySetInnerHTML={{ __html: body }} />
+                  <article className="article-content" dangerouslySetInnerHTML={{ __html: htmlBody }} />
                 </>
-              : body
+              : textBody
                 ? <>
                     {imageHref && (
                       <figure className="article-lead-media">
                         <img src={imageHref} alt="" loading="lazy" referrerPolicy="no-referrer" />
                       </figure>
                     )}
-                    <article className="article-content article-content-plain"><p className="feed-plain-text">{body}</p></article>
+                    <article className="article-content article-content-plain"><p className="feed-plain-text">{textBody}</p></article>
                   </>
               : (
                 <div className="content-fallback">

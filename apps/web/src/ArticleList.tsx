@@ -8,6 +8,7 @@ export function ArticleList(props: {
   onSelect: (a: Article) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  onActionError?: (message: string) => void;
 }) {
   const qc = useQueryClient();
   const setRead = useMutation({
@@ -16,6 +17,7 @@ export function ArticleList(props: {
       qc.invalidateQueries({ queryKey: ["articles"] });
       qc.invalidateQueries({ queryKey: ["feeds"] });
     },
+    onError: () => props.onActionError?.("Could not update read state."),
   });
 
   if (props.collapsed) {

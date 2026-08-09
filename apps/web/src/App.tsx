@@ -92,6 +92,9 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (event.defaultPrevented || event.isComposing || ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")) return;
+      // A modal dialog (add-feed, ingestor, feed picker) owns the keyboard; don't
+      // let list/refresh shortcuts fire behind it.
+      if (document.querySelector("dialog[open]")) return;
       if (event.key === "Escape") {
         if (shortcutHelp) setShortcutHelp(false);
         return;
@@ -131,7 +134,9 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [articles.data, feedId, feeds.data, navigate, refresh, selectedArticle, shortcutHelp, toggle]);
+    // refresh.mutate is stable; depending on the mutation object would re-bind the
+    // listener every render.
+  }, [articles.data, feedId, feeds.data, navigate, refresh.mutate, selectedArticle, shortcutHelp, toggle]);
 
   const gridStyle = {
     "--sidebar-width": `${layout.sidebarCollapsed ? 52 : layout.sidebarWidth}px`,
@@ -161,6 +166,7 @@ export function App() {
           onToggleCollapsed={() => toggle("sidebar")}
           onRefreshFeed={(id) => refresh.mutate(id)}
           refreshingFeedId={refresh.isPending ? (refresh.variables ?? null) : null}
+          onActionError={setShortcutNotice}
         />
         <ColumnResizer className="sidebar-resizer" label="Resize feeds column" value={layout.sidebarWidth} onResize={(delta) => resize("sidebar", delta)} />
         <ArticleList
@@ -170,13 +176,15 @@ export function App() {
           onSelect={selectArticle}
           collapsed={layout.listCollapsed}
           onToggleCollapsed={() => toggle("list")}
+          onActionError={setShortcutNotice}
         />
         <ColumnResizer className="list-resizer" label="Resize articles column" value={layout.listWidth} onResize={(delta) => resize("list", delta)} />
         <ArticleView
-          article={article}
-          loading={Boolean(articleId && (articles.isLoading || deepArticle.isLoading))}
+          article={selectedArticle}
+          loading={Boolean(articleId && (articles.isLoading || deepArticle.isLoading) && !selectedArticle)}
           requested={articleId !== null}
-          onBack={isMobile ? () => navigate(feedPath(article?.feedId ?? articleFromList?.feedId ?? feedId, selectedFeedTitle(article?.feedId ?? articleFromList?.feedId ?? feedId))) : undefined}
+          error={deepArticle.isError && !selectedArticle}
+          onBack={isMobile ? () => navigate(feedPath(selectedArticle?.feedId ?? feedId, selectedFeedTitle(selectedArticle?.feedId ?? feedId))) : undefined}
           collapsed={layout.readerCollapsed}
           onToggleCollapsed={() => toggle("reader")}
         />

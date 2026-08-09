@@ -15,6 +15,7 @@ export function Sidebar(props: {
   onToggleCollapsed: () => void;
   onRefreshFeed: (id: string) => void;
   refreshingFeedId: string | null;
+  onActionError?: (message: string) => void;
 }) {
   const [url, setUrl] = useState("");
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -40,8 +41,16 @@ export function Sidebar(props: {
     },
     onError: (e) => setErrorCode(e instanceof ApiError ? e.code : "unknown"),
   });
-  const unsub = useMutation({ mutationFn: api.unsubscribe, onSuccess: invalidate });
-  const markAll = useMutation({ mutationFn: api.markAllRead, onSuccess: invalidate });
+  const unsub = useMutation({
+    mutationFn: api.unsubscribe,
+    onSuccess: invalidate,
+    onError: () => props.onActionError?.("Could not unsubscribe from that feed."),
+  });
+  const markAll = useMutation({
+    mutationFn: api.markAllRead,
+    onSuccess: invalidate,
+    onError: () => props.onActionError?.("Could not mark that feed read."),
+  });
 
   const total = (feeds.data ?? []).reduce((n, f) => n + f.unreadCount, 0);
   const ingestorByFeed = new Map((ingestors.data ?? []).map((i) => [i.feedId, i]));
