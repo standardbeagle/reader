@@ -7,7 +7,12 @@ let activeBaseUrl: string | undefined;
 
 const URL_ATTRIBUTES = ["href", "src", "poster", "cite"] as const;
 
+const YOUTUBE_EMBED_ALLOW = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+
 function normalizeKnownEmbeds(dirty: string): string {
+  // Building a JSDOM document is expensive; skip it unless there is an embed to
+  // rewrite. Sanitize runs per article on every content read.
+  if (!dirty.includes("lite-youtube")) return dirty;
   const document = new JSDOM(`<body>${dirty}</body>`).window.document;
   for (const node of Array.from(document.querySelectorAll("lite-youtube"))) {
     const videoId = node.getAttribute("videoid")?.trim() ?? "";
@@ -18,7 +23,6 @@ function normalizeKnownEmbeds(dirty: string): string {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("src", `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`);
     iframe.setAttribute("title", node.getAttribute("title")?.trim() || "Embedded YouTube video");
-    iframe.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share");
     iframe.setAttribute("allowfullscreen", "");
     node.replaceWith(iframe);
   }
@@ -87,6 +91,11 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     node.setAttribute("loading", "lazy");
     const src = node.getAttribute("src") ?? "";
     const isYouTubeEmbed = /^https:\/\/www\.youtube-nocookie\.com\/embed\//i.test(src);
+    // Never let feed HTML delegate permissions-policy (camera/mic/etc.) to a
+    // frame: force a fixed allow-list for our own YouTube embed, strip it for
+    // any other frame.
+    if (isYouTubeEmbed) node.setAttribute("allow", YOUTUBE_EMBED_ALLOW);
+    else node.removeAttribute("allow");
     // YouTube error 153 is returned when the embed request has no HTTP
     // Referer. Preserve only the embedding origin for YouTube; other third-
     // party frames keep the stricter no-referrer policy.
@@ -113,9 +122,9 @@ export function sanitizeHtml(dirty: string, baseUrl?: string): string {
       "video",
     ],
     ALLOWED_ATTR: [
-      "alt", "allow", "allowfullscreen", "class", "cite", "colspan", "controls", "datetime",
+      "alt", "allowfullscreen", "class", "cite", "colspan", "controls", "datetime",
       "decoding", "height", "href", "kind", "label", "loading", "poster", "preload", "referrerpolicy",
-      "rel", "rowspan", "sandbox", "scope", "src", "srcset", "srclang", "style", "target", "title",
+      "rel", "rowspan", "sandbox", "scope", "src", "srcset", "srclang", "target", "title",
       "type", "width", "xmlns", "mathvariant", "display", "stretchy", "fence", "separator", "accent",
       "accentunder", "form", "bevelled", "linethickness", "numalign", "denomalign", "rowalign",
       "columnalign", "columnspacing", "rowspacing", "encoding",

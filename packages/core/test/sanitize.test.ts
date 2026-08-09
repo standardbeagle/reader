@@ -59,6 +59,20 @@ describe("sanitizeHtml", () => {
     expect(out).not.toContain("<script");
   });
 
+  it("strips inline style attributes so feed CSS cannot track or overlay", () => {
+    const out = sanitizeHtml('<p style="position:fixed;inset:0;background:url(https://tracker/x.png)">hi</p>');
+    expect(out).not.toContain("style");
+    expect(out).not.toContain("tracker");
+    expect(out).toBe("<p>hi</p>");
+  });
+
+  it("strips feed-supplied allow attributes from iframes", () => {
+    const out = sanitizeHtml('<iframe src="https://player.example/embed/1" allow="camera; microphone"></iframe>');
+    expect(out).toContain("<iframe");
+    expect(out).not.toContain("camera");
+    expect(out).not.toContain("microphone");
+  });
+
   it("turns supported custom video embeds into sandboxed iframes", () => {
     const out = sanitizeHtml('<lite-youtube videoid="dQw4w9WgXcQ" title="Demo"></lite-youtube>');
     expect(out).toContain('src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"');
