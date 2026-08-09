@@ -35,6 +35,7 @@ export async function processItems(
     for (const item of chunk) {
       const s = scoreBy.get(item.externalId);
       if (s === undefined) throw new Error(`llm filter missing score for item ${item.externalId}`);
+      if (!Number.isFinite(s.score)) throw new Error(`llm filter returned a non-numeric score for item ${item.externalId}`);
       if (s.score >= opts.threshold) passing.push({ item, score: s.score });
       else dropped.push({ item, score: s.score, reason: s.reason });
     }

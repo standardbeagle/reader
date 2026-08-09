@@ -74,6 +74,12 @@ export class IngestorEngine {
   }
 
   private async runPipeline(ing: Ingestor, items: NormalizedItem[], publishedAt: "original" | "delivery"): Promise<PipelineResult> {
+    // An ingestor configured for LLM filtering must not silently degrade to
+    // delivering everything unfiltered when the key later disappears — fail so
+    // the error surfaces and the item stays staged for a real run.
+    if (ing.llmEnabled && !this.llm) {
+      throw new Error("LLM filtering is enabled for this ingestor but no OPENROUTER_API_KEY is configured");
+    }
     const result = await processItems(items, {
       llm: ing.llmEnabled ? this.llm : null,
       threshold: ing.filterThreshold,
@@ -112,6 +118,9 @@ export class IngestorEngine {
     const key = (config._kind as string) ?? kind;
     const fn = this.adapterOverride?.[key] ?? adapters[key as keyof typeof adapters]?.fetch.bind(adapters[key as keyof typeof adapters]);
     if (!fn) throw new Error(`no adapter for kind ${kind}`);
+    if (opts.llmEnabled && !this.llm) {
+      throw new Error("LLM filtering is enabled but no OPENROUTER_API_KEY is configured");
+    }
     const { items } = await fn(config, null);
     return processItems(items, { llm: opts.llmEnabled ? this.llm : null, threshold: opts.threshold });
   }
