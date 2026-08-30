@@ -1,9 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type TouchEvent } from "react";
 import type { Article } from "./api";
 import { safeUrl } from "./urls";
 
+const SWIPE_OPEN_PX = 12;
+const SWIPE_COMMIT_PX = 72;
+const SWIPE_COMMIT_VELOCITY = 0.55;
+
 export function ArticleView(props: {
   article: Article | null;
+  prevArticle?: Article | null;
+  nextArticle?: Article | null;
+  onNavArticle?: (target: Article, dir: "prev" | "next") => void;
+  navDir?: "prev" | "next" | null;
   onBack?: (() => void) | undefined;
   loading?: boolean;
   requested?: boolean;
@@ -14,6 +22,60 @@ export function ArticleView(props: {
   const a = props.article;
   const [view, setView] = useState<"reader" | "embedded">("reader");
   useEffect(() => setView("reader"), [a?.id]);
+
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    panelRef.current?.scrollTo({ top: 0 });
+  }, [a?.id]);
+
+  // Horizontal swipe navigation (touch): lock to one axis after a small
+  // threshold so vertical scrolling is never hijacked, drag the article with
+  // the finger, commit past a distance or velocity, spring back otherwise.
+  const [swipe, setSwipe] = useState<{ dx: number; engaged: boolean } | null>(null);
+  const touch = useRef<{ startX: number; startY: number; lastX: number; lastT: number; axis: "h" | "v" | null } | null>(null);
+  const canSwipe = Boolean(a && props.onNavArticle && view === "reader");
+
+  const onTouchStart = (event: TouchEvent<HTMLElement>) => {
+    if (!canSwipe || event.touches.length !== 1) return;
+    const t = event.touches[0];
+    if (!t) return;
+    touch.current = { startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastT: event.timeStamp, axis: null };
+    setSwipe(null);
+  };
+  const onTouchMove = (event: TouchEvent<HTMLElement>) => {
+    const state = touch.current;
+    if (!state || event.touches.length !== 1) return;
+    const t = event.touches[0];
+    if (!t) return;
+    const dx = t.clientX - state.startX;
+    const dy = t.clientY - state.startY;
+    if (!state.axis) {
+      if (Math.abs(dx) > SWIPE_OPEN_PX && Math.abs(dx) > Math.abs(dy) * 1.5) state.axis = "h";
+      else if (Math.abs(dy) > SWIPE_OPEN_PX) state.axis = "v";
+      if (!state.axis) return;
+    }
+    if (state.axis === "v") return;
+    state.lastX = t.clientX;
+    state.lastT = event.timeStamp;
+    // Resist dragging past the ends of the list.
+    const resist = (dx > 0 && !props.prevArticle) || (dx < 0 && !props.nextArticle) ? 0.22 : 1;
+    setSwipe({ dx: dx * resist, engaged: true });
+  };
+  const onTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const state = touch.current;
+    touch.current = null;
+    const current = swipe;
+    setSwipe(null);
+    if (!state || state.axis !== "h" || !current?.engaged || !props.onNavArticle) return;
+    const endX = event.changedTouches[0]?.clientX;
+    if (endX === undefined) return;
+    const dt = Math.max(1, event.timeStamp - state.lastT);
+    const velocity = (endX - state.lastX) / dt;
+    const commit = Math.abs(current.dx) > SWIPE_COMMIT_PX || Math.abs(velocity) > SWIPE_COMMIT_VELOCITY;
+    if (!commit) return;
+    if (current.dx < 0 && props.nextArticle) props.onNavArticle(props.nextArticle, "next");
+    else if (current.dx > 0 && props.prevArticle) props.onNavArticle(props.prevArticle, "prev");
+  };
 
   if (props.collapsed) {
     return (
@@ -42,9 +104,23 @@ export function ArticleView(props: {
   const htmlBody = a.contentHtml?.trim() || null;
   const textBody = htmlBody ? null : a.summary?.trim() || null;
   const hasLeadImageInBody = Boolean(imageHref && htmlBody?.includes(imageHref));
+  const enterClass = props.navDir === "next" ? " enter-next" : props.navDir === "prev" ? " enter-prev" : "";
+  const swipeStyle = swipe?.engaged
+    ? { transform: `translateX(${swipe.dx}px)`, transition: "none" }
+    : undefined;
+  const showNav = Boolean(props.onNavArticle && (props.prevArticle || props.nextArticle));
   return (
-    <main id="reader-panel" className="reader" aria-label="Article reader">
-      <div className="article">
+    <main
+      id="reader-panel"
+      ref={panelRef}
+      className="reader"
+      aria-label="Article reader"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={() => { touch.current = null; setSwipe(null); }}
+    >
+      <div key={a.id} className={`article${enterClass}`} style={swipeStyle}>
         {props.onBack && <button className="back-btn" onClick={props.onBack}>← Back to list</button>}
         <div className="article-heading">
           <div>
@@ -118,6 +194,28 @@ export function ArticleView(props: {
                 </div>
               )}
           </div>
+        )}
+        {showNav && (
+          <nav className="article-nav" aria-label="Article navigation">
+            {props.prevArticle ? (
+              <button className="nav-link nav-prev" onClick={() => props.onNavArticle!(props.prevArticle!, "prev")}>
+                <span className="nav-arrow" aria-hidden="true">←</span>
+                <span className="nav-target">
+                  <span className="nav-dir">Previous</span>
+                  <span className="nav-title">{props.prevArticle.title}</span>
+                </span>
+              </button>
+            ) : <span className="nav-spacer" />}
+            {props.nextArticle ? (
+              <button className="nav-link nav-next" onClick={() => props.onNavArticle!(props.nextArticle!, "next")}>
+                <span className="nav-target">
+                  <span className="nav-dir">Next</span>
+                  <span className="nav-title">{props.nextArticle.title}</span>
+                </span>
+                <span className="nav-arrow" aria-hidden="true">→</span>
+              </button>
+            ) : <span className="nav-spacer" />}
+          </nav>
         )}
       </div>
     </main>

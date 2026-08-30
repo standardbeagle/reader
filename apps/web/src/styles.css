@@ -94,8 +94,26 @@ input:focus { outline: none; border-color: var(--accent); }
 }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
-.reader { overflow-y: auto; padding: var(--space-4) var(--space-6); }
-.reader .article { max-width: 68ch; animation: fade-in var(--dur-med) var(--ease); }
+.reader { overflow-y: auto; padding: var(--space-4) var(--space-6); touch-action: pan-y; overscroll-behavior-x: contain; }
+.reader .article { max-width: 68ch; animation: article-in var(--dur-med) var(--ease); }
+.reader .article.enter-next { animation-name: article-in-next; }
+.reader .article.enter-prev { animation-name: article-in-prev; }
+@keyframes article-in { from { opacity: 0; transform: translateY(12px); } }
+@keyframes article-in-next { from { opacity: 0; transform: translateX(40px); } }
+@keyframes article-in-prev { from { opacity: 0; transform: translateX(-40px); } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.reader .article-heading { animation: rise-in var(--dur-med) var(--ease) both; animation-delay: 40ms; }
+.reader .reader-tabs { animation: rise-in var(--dur-med) var(--ease) 90ms both; }
+#reader-content-panel { animation: rise-in var(--dur-slow) var(--ease) 130ms both; }
+.embedded-content-panel { animation: rise-in var(--dur-med) var(--ease) 130ms both; }
+.reader .article-lead-media {
+  animation: reveal-media 420ms var(--ease) 120ms both;
+}
+@keyframes reveal-media {
+  from { opacity: 0; transform: scale(0.985); clip-path: inset(5% 3% 5% 3% round var(--radius)); }
+  to { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round var(--radius)); }
+}
+.reader .article-nav { animation: rise-in var(--dur-med) var(--ease) 180ms both; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .reader.empty { display: grid; place-items: center; color: var(--text-dim); }
 .reader h2 { font-size: var(--fs-xl); line-height: 1.3; margin: 0 0 var(--space-1); }
@@ -109,6 +127,33 @@ input:focus { outline: none; border-color: var(--accent); }
 .reader article blockquote { margin: var(--space-3) 0; padding-left: var(--space-3); border-left: 3px solid var(--accent); color: var(--text-dim); }
 .reader article a { color: var(--accent-text); }
 .back-btn { display: none; margin-bottom: var(--space-3); color: var(--accent-text); font-weight: 600; }
+
+.article-nav {
+  display: flex; justify-content: space-between; align-items: stretch; gap: var(--space-3);
+  margin-top: var(--space-8); padding-top: var(--space-4); border-top: 1px solid var(--border);
+}
+.article-nav .nav-spacer { flex: 1; }
+.nav-link {
+  display: flex; align-items: center; gap: var(--space-3); min-width: 0; max-width: 48%;
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  text-align: left; color: var(--text);
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.nav-link:hover { border-color: var(--accent); background: var(--accent-bg); }
+.nav-link:active { transform: scale(0.98); }
+.nav-link .nav-arrow { color: var(--accent-text); font-size: var(--fs-lg); flex-shrink: 0; }
+.nav-link .nav-target { min-width: 0; }
+.nav-link .nav-dir {
+  display: block; font-size: var(--fs-2xs); font-weight: 700; color: var(--text-dim);
+  letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 2px;
+}
+.nav-link .nav-title {
+  display: block; font-size: var(--fs-sm); font-weight: 600; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch;
+}
+.nav-link.nav-next { text-align: right; margin-left: auto; }
+.nav-link.nav-next .nav-target { text-align: right; }
+.nav-link.nav-next .nav-title { margin-left: auto; }
 
 .callout {
   border: 1px solid var(--border); border-left: 3px solid var(--danger); border-radius: var(--radius);
@@ -561,4 +606,7 @@ kbd {
   .reader-tabs { overflow-x: auto; scrollbar-width: thin; }
   .reader-tab { flex: 0 0 auto; }
   .shortcut-hints span { font-size: var(--fs-2xs); }
+  .article-nav { margin-top: var(--space-6); }
+  .nav-link { max-width: 46%; padding: 10px; }
+  .nav-link .nav-title { max-width: 18ch; }
 }

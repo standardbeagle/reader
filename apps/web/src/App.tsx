@@ -27,6 +27,7 @@ export function App() {
   const feedId = params.feedId ? idFromRouteKey(params.feedId) : null;
   const articleId = params.articleId ? idFromRouteKey(params.articleId) : null;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [navDir, setNavDir] = useState<"prev" | "next" | null>(null);
   const [shortcutHelp, setShortcutHelp] = useState(false);
   const [shortcutNotice, setShortcutNotice] = useState<string | null>(null);
   const theme = useTheme();
@@ -65,6 +66,15 @@ export function App() {
     },
   });
 
+  const setRead = useMutation({
+    mutationFn: ({ id, read }: { id: string; read: boolean }) => api.setRead(id, read),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      qc.invalidateQueries({ queryKey: ["feeds"] });
+    },
+    onError: () => setShortcutNotice("Could not update read state."),
+  });
+
   useEffect(() => {
     if (!shortcutNotice) return;
     const timer = window.setTimeout(() => setShortcutNotice(null), 5000);
@@ -72,8 +82,18 @@ export function App() {
   }, [shortcutNotice]);
 
   const selectFeed = (id: string | null) => { navigate(feedPath(id, selectedFeedTitle(id))); setDrawerOpen(false); };
-  const selectArticle = (next: Article) => { navigate(articlePath(next, selectedFeedTitle(next.feedId))); setDrawerOpen(false); };
+  const selectArticle = (next: Article) => { setNavDir(null); navigate(articlePath(next, selectedFeedTitle(next.feedId))); setDrawerOpen(false); };
+  const goArticle = (target: Article, dir: "prev" | "next") => {
+    setNavDir(dir);
+    navigate(articlePath(target, selectedFeedTitle(target.feedId)));
+    if (!target.readAt) setRead.mutate({ id: target.id, read: true });
+  };
   const showReader = isMobile && (article !== null || articleId !== null);
+
+  const list = articles.data ?? [];
+  const currentIndex = selectedArticle ? list.findIndex((item) => item.id === selectedArticle.id) : -1;
+  const prevArticle = currentIndex > 0 ? list[currentIndex - 1] ?? null : null;
+  const nextArticle = currentIndex >= 0 && currentIndex < list.length - 1 ? list[currentIndex + 1] ?? null : null;
 
   useEffect(() => {
     if (!feeds.data) return;
@@ -113,7 +133,10 @@ export function App() {
           ? Math.min(list.length - 1, current + 1)
           : Math.max(0, current < 0 ? 0 : current - 1);
         const next = list[nextIndex];
-        if (next) navigate(articlePath(next, selectedFeedTitle(next.feedId)));
+        if (next) {
+          setNavDir(event.key === "j" ? "next" : "prev");
+          navigate(articlePath(next, selectedFeedTitle(next.feedId)));
+        }
         return;
       }
       if (event.key === "r") {
@@ -184,6 +207,10 @@ export function App() {
           loading={Boolean(articleId && (articles.isLoading || deepArticle.isLoading) && !selectedArticle)}
           requested={articleId !== null}
           error={deepArticle.isError && !selectedArticle}
+          prevArticle={prevArticle}
+          nextArticle={nextArticle}
+          onNavArticle={goArticle}
+          navDir={navDir}
           onBack={isMobile ? () => navigate(feedPath(selectedArticle?.feedId ?? feedId, selectedFeedTitle(selectedArticle?.feedId ?? feedId))) : undefined}
           collapsed={layout.readerCollapsed}
           onToggleCollapsed={() => toggle("reader")}
