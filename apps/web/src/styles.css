@@ -155,6 +155,10 @@ input:focus { outline: none; border-color: var(--accent); }
 .nav-link.nav-next .nav-target { text-align: right; }
 .nav-link.nav-next .nav-title { margin-left: auto; }
 
+.install-steps { margin: 0 0 var(--space-4); padding-left: var(--space-5); color: var(--text); }
+.install-steps li { margin-bottom: var(--space-2); font-size: var(--fs-sm); line-height: 1.5; }
+.install-steps strong { font-weight: 700; }
+
 .callout {
   border: 1px solid var(--border); border-left: 3px solid var(--danger); border-radius: var(--radius);
   background: var(--danger-bg); padding: var(--space-3); margin-bottom: var(--space-3);

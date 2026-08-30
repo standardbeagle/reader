@@ -8,6 +8,7 @@ import { ArticleView } from "./ArticleView";
 import { ColumnResizer } from "./ColumnResizer";
 import { ShortcutHints } from "./ShortcutHints";
 import { useTheme, toggleTheme } from "./theme";
+import { isStandalone, promptInstall } from "./installPrompt";
 import { useMediaQuery } from "./useMediaQuery";
 import { useColumnLayout } from "./useColumnLayout";
 import { idFromRouteKey, routeKey, safeUrl } from "./urls";
@@ -28,6 +29,7 @@ export function App() {
   const articleId = params.articleId ? idFromRouteKey(params.articleId) : null;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [navDir, setNavDir] = useState<"prev" | "next" | null>(null);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
   const [shortcutHelp, setShortcutHelp] = useState(false);
   const [shortcutNotice, setShortcutNotice] = useState<string | null>(null);
   const theme = useTheme();
@@ -174,6 +176,14 @@ export function App() {
         )}
         <h1 className="brand">Reader</h1>
         <span className="spacer" />
+        {!isStandalone() && (
+          <button
+            className="icon-btn"
+            aria-label="Install app"
+            title="Install app"
+            onClick={() => { if (!promptInstall()) setInstallHelpOpen(true); }}
+          >⤓</button>
+        )}
         <button className="icon-btn" aria-label="Toggle theme" onClick={toggleTheme}>
           {theme === "dark" ? "☀" : "☾"}
         </button>
@@ -216,6 +226,20 @@ export function App() {
           onToggleCollapsed={() => toggle("reader")}
         />
       </div>
+      {installHelpOpen && (
+        <div className="overlay" onClick={() => setInstallHelpOpen(false)}>
+          <div className="picker" role="dialog" aria-modal="true" aria-label="Install Reader" onClick={(event) => event.stopPropagation()}>
+            <h2>Install Reader</h2>
+            <p className="sub">Add Reader to your home screen for a full-screen, app-like experience.</p>
+            <ul className="install-steps">
+              <li><strong>iPhone / iPad (Safari):</strong> tap the Share button, then “Add to Home Screen”.</li>
+              <li><strong>Android (Chrome):</strong> open the ⋮ menu, then “Install app” or “Add to Home screen”.</li>
+              <li><strong>Desktop (Chrome / Edge):</strong> click the install icon in the address bar.</li>
+            </ul>
+            <button className="cancel" onClick={() => setInstallHelpOpen(false)}>Close</button>
+          </div>
+        </div>
+      )}
       <ShortcutHints open={shortcutHelp} notice={shortcutNotice} onToggle={() => setShortcutHelp((open) => !open)} />
     </div>
   );
