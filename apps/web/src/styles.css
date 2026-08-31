@@ -94,13 +94,25 @@ input:focus { outline: none; border-color: var(--accent); }
 }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
-.reader { overflow-y: auto; padding: var(--space-4) var(--space-6); touch-action: pan-y; overscroll-behavior-x: contain; }
-.reader .article { max-width: 68ch; animation: article-in var(--dur-med) var(--ease); }
+.reader { position: relative; overflow-y: auto; touch-action: pan-y; overscroll-behavior-x: contain; }
+.reader-stage { position: relative; padding: var(--space-4) var(--space-6); }
+.reader .article { max-width: 68ch; animation: article-in var(--dur-slow) var(--ease); }
 .reader .article.enter-next { animation-name: article-in-next; }
 .reader .article.enter-prev { animation-name: article-in-prev; }
-@keyframes article-in { from { opacity: 0; transform: translateY(12px); } }
-@keyframes article-in-next { from { opacity: 0; transform: translateX(40px); } }
-@keyframes article-in-prev { from { opacity: 0; transform: translateX(-40px); } }
+.reader .article-leaving {
+  position: absolute; inset: 0; z-index: 1; max-width: 68ch; pointer-events: none;
+  overflow: hidden; padding: inherit;
+  animation: article-out var(--dur-slow) var(--ease) forwards;
+}
+.reader .article-leaving.leave-next { animation-name: article-out-next; }
+.reader .article-leaving.leave-prev { animation-name: article-out-prev; }
+.article-leaving * { animation: none !important; }
+@keyframes article-in { from { opacity: 0; transform: translateY(14px); } }
+@keyframes article-in-next { from { opacity: 0.35; transform: translateX(72px); } }
+@keyframes article-in-prev { from { opacity: 0.35; transform: translateX(-72px); } }
+@keyframes article-out { to { opacity: 0; transform: translateY(-8px); } }
+@keyframes article-out-next { to { opacity: 0; transform: translateX(-56px); } }
+@keyframes article-out-prev { to { opacity: 0; transform: translateX(56px); } }
 @keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .reader .article-heading { animation: rise-in var(--dur-med) var(--ease) both; animation-delay: 40ms; }
 .reader .reader-tabs { animation: rise-in var(--dur-med) var(--ease) 90ms both; }
@@ -127,7 +139,6 @@ input:focus { outline: none; border-color: var(--accent); }
 .reader article blockquote { margin: var(--space-3) 0; padding-left: var(--space-3); border-left: 3px solid var(--accent); color: var(--text-dim); }
 .reader article a { color: var(--accent-text); }
 .back-btn { display: none; margin-bottom: var(--space-3); color: var(--accent-text); font-weight: 600; }
-
 .article-nav {
   display: flex; justify-content: space-between; align-items: stretch; gap: var(--space-3);
   margin-top: var(--space-8); padding-top: var(--space-4); border-top: 1px solid var(--border);
@@ -260,6 +271,10 @@ input:focus { outline: none; border-color: var(--accent); }
   .layout:not(.show-reader) .reader { display: none; }
   .list { border-right: none; }
   .back-btn { display: block; }
+  .back-btn {
+    min-height: 44px; margin: 0 0 var(--space-2) -14px; padding: 8px 14px;
+    font-size: var(--fs-md);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -330,7 +345,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .list li .date { font-size: var(--fs-sm); padding-right: 12px; }
 .list .empty, .list .loading { font-size: var(--fs-base); }
 
-.reader { padding: var(--space-6) clamp(24px, 4vw, 64px); }
+.reader-stage { padding: var(--space-6) clamp(24px, 4vw, 64px); }
 .reader .article { max-width: 78ch; }
 .reader .article-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .reader h2 { font-size: clamp(26px, 2.4vw, 36px); line-height: 1.18; }
@@ -403,7 +418,7 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 @media (max-width: 699px) {
   .layout, .layout.reader-collapsed { grid-template-columns: 1fr; overflow: hidden; }
   .column-resizer { display: none; }
-  .reader { padding: var(--space-4); }
+  .reader-stage { padding: var(--space-4); }
   .reader .article-heading { display: block; }
   .reader .article-heading .panel-collapse { display: none; }
   .shortcut-hints { right: 8px; bottom: 8px; left: 8px; justify-content: space-between; gap: 4px; }
