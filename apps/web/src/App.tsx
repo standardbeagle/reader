@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { api, ApiError, type Article } from "./api";
 import { Sidebar } from "./Sidebar";
@@ -51,6 +51,9 @@ export function App() {
     }),
     initialPageParam: {} as { before?: string; beforeId?: string },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    // Keep the outgoing pages on screen while a subject switch loads, so the
+    // list never collapses to the skeleton (which would also reset scroll).
+    placeholderData: keepPreviousData,
     refetchInterval: 60_000,
   });
   const categories = useQuery({

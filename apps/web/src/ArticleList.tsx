@@ -104,32 +104,9 @@ export function ArticleList(props: {
     );
   }
 
-  if (props.loading) {
-    return (
-      <section id="article-list-panel" className="list" role="region" aria-label="Article list" aria-busy="true">
-        <div className="panel-head">
-          <h2>Articles</h2>
-          <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
-        </div>
-        <div className="skel">
-          {[0, 1, 2, 3, 4, 5].map((i) => <div className="bar" key={i} />)}
-        </div>
-      </section>
-    );
-  }
-  if (props.articles.length === 0) {
-    return (
-      <section id="article-list-panel" className="list" role="region" aria-label="Article list">
-        <div className="panel-head">
-          <h2>Articles</h2>
-          <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
-        </div>
-        {props.selectedCategory && props.categories.length > 0 && <FilterChips {...props} />}
-        <div className="empty">{props.selectedCategory ? "Nothing filed under this subject." : "No articles."}</div>
-      </section>
-    );
-  }
-
+  // One section for every data state: the panel head and the chip row never
+  // unmount, so selecting a subject (which swaps the body while the filtered
+  // page loads) cannot reset the chip row's horizontal scroll position.
   const renderRow = (a: Article) => (
     <li
       key={a.id}
@@ -147,13 +124,14 @@ export function ArticleList(props: {
     </li>
   );
 
-  return (
-    <section id="article-list-panel" className="list" role="region" aria-label="Article list" onScroll={onListScroll}>
-      <div className="panel-head">
-        <h2>Articles</h2>
-        <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
-      </div>
-      <FilterChips {...props} />
+  const body = props.loading ? (
+    <div className="skel" aria-busy="true">
+      {[0, 1, 2, 3, 4, 5].map((i) => <div className="bar" key={i} />)}
+    </div>
+  ) : props.articles.length === 0 ? (
+    <div className="empty">{props.selectedCategory ? "Nothing filed under this subject." : "No articles."}</div>
+  ) : (
+    <>
       <ul>
         {groups.map((group) => (
           <Fragment key={group.key}>
@@ -170,6 +148,24 @@ export function ArticleList(props: {
           {props.loadingMore ? "Loading…" : "Load more"}
         </button>
       )}
+    </>
+  );
+
+  return (
+    <section
+      id="article-list-panel"
+      className="list"
+      role="region"
+      aria-label="Article list"
+      aria-busy={props.loading || undefined}
+      onScroll={onListScroll}
+    >
+      <div className="panel-head">
+        <h2>Articles</h2>
+        <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
+      </div>
+      <FilterChips {...props} />
+      {body}
     </section>
   );
 }

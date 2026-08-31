@@ -93,6 +93,7 @@ input:focus { outline: none; border-color: var(--accent); }
 .load-more-btn:hover { color: var(--text); border-color: var(--accent); }
 .cat-chips {
   display: flex; gap: var(--space-2); overflow-x: auto; scrollbar-width: thin;
+  overscroll-behavior-x: contain;
   padding: var(--space-3) 14px;
   border-bottom: 1px solid var(--border);
 }
