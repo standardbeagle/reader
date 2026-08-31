@@ -28,7 +28,7 @@
   --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
   --space-5: 1.25rem; --space-6: 1.5rem; --space-7: 2rem; --space-8: 2.5rem;
   --row-h: 2.75rem; --radius: 0.4375rem;
-  --dur-fast: 120ms; --dur-med: 180ms; --dur-slow: 320ms;
+  --dur-fast: 120ms; --dur-med: 180ms; --dur-slow: 320ms; --dur-page: 460ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 :root, [data-theme="light"] {

@@ -5,7 +5,7 @@ import { safeUrl } from "./urls";
 const SWIPE_OPEN_PX = 12;
 const SWIPE_COMMIT_PX = 64;
 const SWIPE_COMMIT_VELOCITY = 0.5;
-const LEAVE_MS = 400;
+const LEAVE_MS = 620;
 
 type NavDir = "prev" | "next" | null;
 type Stage = { a: Article; dir: NavDir };
@@ -229,7 +229,7 @@ function ArticleSnapshot({ a }: { a: Article }) {
           </p>
         </div>
       </div>
-      <div id="reader-content-panel-out">
+      <div className="leaving-body">
         <ArticleContent a={a} htmlBody={htmlBody} textBody={textBody} />
       </div>
     </>

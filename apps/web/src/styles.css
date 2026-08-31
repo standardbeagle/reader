@@ -97,22 +97,20 @@ input:focus { outline: none; border-color: var(--accent); }
 .reader { position: relative; overflow-y: auto; touch-action: pan-y; overscroll-behavior-x: contain; }
 .reader-stage { position: relative; padding: var(--space-4) var(--space-6); }
 .reader .article { max-width: 68ch; animation: article-in var(--dur-slow) var(--ease); }
-.reader .article.enter-next { animation-name: article-in-next; }
-.reader .article.enter-prev { animation-name: article-in-prev; }
-.reader .article-leaving {
-  position: absolute; inset: 0; z-index: 1; max-width: 68ch; pointer-events: none;
-  overflow: hidden; padding: inherit;
-  animation: article-out var(--dur-slow) var(--ease) forwards;
-}
-.reader .article-leaving.leave-next { animation-name: article-out-next; }
-.reader .article-leaving.leave-prev { animation-name: article-out-prev; }
-.article-leaving * { animation: none !important; }
+/* Directional push (prev/next/swipe): children slide horizontally at
+   different rates — parallax layers — instead of one flat layer slide,
+   which fought the vertical rise-in of the child stagger. */
+.reader .article.enter-next { --push-base: 110px; animation: none; }
+.reader .article.enter-prev { --push-base: -110px; animation: none; }
+@keyframes push-in { from { opacity: 0; transform: translateX(calc(var(--push-base, 0px) * var(--push-rate, 1))); } }
+@keyframes push-out { to { opacity: 0; transform: translateX(calc(var(--push-base, 0px) * var(--push-rate, 1) * -0.55)); } }
+.reader .article.enter-next .article-heading, .reader .article.enter-prev .article-heading { --push-rate: 1.4; animation: push-in var(--dur-page) var(--ease) both; }
+.reader .article.enter-next .reader-tabs, .reader .article.enter-prev .reader-tabs { --push-rate: 1.15; animation: push-in var(--dur-page) var(--ease) 50ms both; }
+.reader .article.enter-next #reader-content-panel, .reader .article.enter-prev #reader-content-panel { --push-rate: 0.85; animation: push-in var(--dur-page) var(--ease) 70ms both; }
+.reader .article.enter-next .embedded-content-panel, .reader .article.enter-prev .embedded-content-panel { --push-rate: 0.85; animation: push-in var(--dur-page) var(--ease) 70ms both; }
+.reader .article.enter-next .article-lead-media, .reader .article.enter-prev .article-lead-media { --push-rate: 1.7; animation: push-in var(--dur-page) var(--ease) 40ms both; }
+.reader .article.enter-next .article-nav, .reader .article.enter-prev .article-nav { --push-rate: 0.7; animation: push-in var(--dur-page) var(--ease) 110ms both; }
 @keyframes article-in { from { opacity: 0; transform: translateY(14px); } }
-@keyframes article-in-next { from { opacity: 0.35; transform: translateX(72px); } }
-@keyframes article-in-prev { from { opacity: 0.35; transform: translateX(-72px); } }
-@keyframes article-out { to { opacity: 0; transform: translateY(-8px); } }
-@keyframes article-out-next { to { opacity: 0; transform: translateX(-56px); } }
-@keyframes article-out-prev { to { opacity: 0; transform: translateX(56px); } }
 @keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .reader .article-heading { animation: rise-in var(--dur-med) var(--ease) both; animation-delay: 40ms; }
 .reader .reader-tabs { animation: rise-in var(--dur-med) var(--ease) 90ms both; }
@@ -126,6 +124,21 @@ input:focus { outline: none; border-color: var(--accent); }
   to { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round var(--radius)); }
 }
 .reader .article-nav { animation: rise-in var(--dur-med) var(--ease) 180ms both; }
+/* Leaving layer: children slide out at mirrored rates (directional) or
+   fade in place (directionless open from the list). The blanket child
+   suppression kills base stagger/reveal animations; the !important
+   per-child rules below win it on specificity. */
+.reader .article-leaving {
+  position: absolute; inset: 0; z-index: 1; max-width: 68ch; pointer-events: none;
+  overflow: hidden; padding: inherit;
+}
+.reader .article-leaving.leave-next { --push-base: 110px; }
+.reader .article-leaving.leave-prev { --push-base: -110px; }
+.reader .article-leaving * { animation: none !important; }
+.reader .article-leaving .article-heading { --push-rate: 1.4; animation: push-out var(--dur-page) var(--ease) both !important; }
+.reader .article-leaving .leaving-body { --push-rate: 0.85; animation: push-out var(--dur-page) var(--ease) 70ms both !important; }
+.reader .article-leaving .article-lead-media { --push-rate: 1.7; animation: push-out var(--dur-page) var(--ease) 40ms both !important; }
+.reader .article-leaving .reader-tabs { --push-rate: 1.15; animation: push-out var(--dur-page) var(--ease) 50ms both !important; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .reader.empty { display: grid; place-items: center; color: var(--text-dim); }
 .reader h2 { font-size: var(--fs-xl); line-height: 1.3; margin: 0 0 var(--space-1); }
