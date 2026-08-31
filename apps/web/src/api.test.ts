@@ -6,10 +6,42 @@ beforeEach(() => vi.restoreAllMocks());
 describe("api client", () => {
   it("builds article query params", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ articles: [] }), { status: 200 }),
+      new Response(JSON.stringify({ articles: [], nextCursor: null }), { status: 200 }),
     );
-    await api.listArticles({ feedId: "f1", unread: true });
-    expect(spy).toHaveBeenCalledWith("/api/v1/articles?feed_id=f1&unread=1", expect.anything());
+    await api.listArticles({ feedId: "f1", category: "World", limit: 25 });
+    expect(spy).toHaveBeenCalledWith("/api/v1/articles?feed_id=f1&category=World&limit=25", expect.anything());
+  });
+
+  it("builds keyset cursor params for infinite scroll", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ articles: [], nextCursor: null }), { status: 200 }),
+    );
+    await api.listArticles({ feedId: "f1", before: "2026-07-01T00:00:00Z", beforeId: "a2" });
+    expect(spy).toHaveBeenCalledWith(
+      "/api/v1/articles?feed_id=f1&before=2026-07-01T00%3A00%3A00Z&before_id=a2",
+      expect.anything(),
+    );
+  });
+
+  it("returns the article page with its cursor", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        articles: [{ id: "a1" }],
+        nextCursor: { before: "2026-07-01T00:00:00Z", beforeId: "a1" },
+      }), { status: 200 }),
+    );
+    const page = await api.listArticles();
+    expect(page.articles).toHaveLength(1);
+    expect(page.nextCursor).toEqual({ before: "2026-07-01T00:00:00Z", beforeId: "a1" });
+  });
+
+  it("omits the feed filter for all-feeds category counts", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify({ categories: [] }), { status: 200 }));
+    await api.listCategories();
+    expect(spy).toHaveBeenCalledWith("/api/v1/categories?", expect.anything());
+    await api.listCategories("f1");
+    expect(spy).toHaveBeenLastCalledWith("/api/v1/categories?feed_id=f1", expect.anything());
   });
 
   it("sends no content-type header on body-less calls", async () => {

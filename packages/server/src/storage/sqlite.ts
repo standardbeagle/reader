@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   Storage, User, Feed, Article, ArticleWithState, ArticleQuery, FetchState,
-  NormalizedItem, Ingestor, IngestorPatch,
+  NormalizedItem, Ingestor, IngestorPatch, CategoryCount,
 } from "./types.js";
 import { looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
 
@@ -73,6 +73,16 @@ export function createSqliteStorage(path: string): Storage {
     };
   }
 
+  function categoriesFromJson(raw: unknown): string[] {
+    if (typeof raw !== "string" || !raw) return [];
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
   function rowToArticle(r: Record<string, unknown>, includeContent = true): Article {
     const rawContent = includeContent ? (r.content_html as string) ?? null : null;
     const rawSummary = includeContent ? (r.summary as string) ?? null : null;
@@ -91,6 +101,7 @@ export function createSqliteStorage(path: string): Storage {
       contentHtml,
       summary: promotedSummary ? null : rawSummary,
       imageUrl: includeContent ? (r.image_url as string) ?? null : null,
+      categories: categoriesFromJson(r.categories),
       fetchedAt: r.fetched_at as string,
     };
   }
@@ -189,8 +200,8 @@ export function createSqliteStorage(path: string): Storage {
 
     upsertArticles(feedId, articles: ParsedArticle[], sanitize, baseUrl): Article[] {
       const insert = db.prepare(`
-        INSERT INTO articles (id, feed_id, guid, url, title, author, published_at, content_html, summary, image_url, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles (id, feed_id, guid, url, title, author, published_at, content_html, summary, image_url, categories, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (feed_id, guid) DO NOTHING
       `);
       const updateExisting = db.prepare(`
@@ -199,6 +210,7 @@ export function createSqliteStorage(path: string): Storage {
           content_html = COALESCE(?, content_html),
           summary = CASE WHEN ? IS NOT NULL THEN ? ELSE summary END,
           image_url = COALESCE(?, image_url),
+          categories = ?,
           fetched_at = ?
         WHERE feed_id = ? AND guid = ?
       `);
@@ -220,23 +232,25 @@ export function createSqliteStorage(path: string): Storage {
             : null;
           const summary = rawContent ? rawSummary : contentSource ? null : rawSummary;
           const imageUrl = a.imageUrl ? resolveHttpUrl(a.imageUrl, a.url ?? resolvedBaseUrl) : null;
+          const categories = (a.categories ?? []).slice(0, 8);
+          const categoriesJson = JSON.stringify(categories);
           const res = insert.run(
             id, feedId, a.guid, a.url, a.title, a.author,
             a.publishedAt ? a.publishedAt.toISOString() : null,
             contentHtml,
-            summary, imageUrl, now,
+            summary, imageUrl, categoriesJson, now,
           );
           if (res.changes > 0) {
             insertUserArticleIfNew.run(userId, id, userId, id);
             inserted.push({
               id, feedId, guid: a.guid, url: a.url, title: a.title, author: a.author,
               publishedAt: a.publishedAt ? a.publishedAt.toISOString() : null,
-              contentHtml, summary, imageUrl, fetchedAt: now,
+              contentHtml, summary, imageUrl, categories, fetchedAt: now,
             });
           } else {
             updateExisting.run(
               a.url, a.title, a.author, a.publishedAt ? a.publishedAt.toISOString() : null,
-              contentHtml, contentHtml, summary, imageUrl, now, feedId, a.guid,
+              contentHtml, contentHtml, summary, imageUrl, categoriesJson, now, feedId, a.guid,
             );
           }
         }
@@ -251,22 +265,58 @@ export function createSqliteStorage(path: string): Storage {
       const params: unknown[] = [q.userId];
       if (q.feedId) { clauses.push("a.feed_id = ?"); params.push(q.feedId); }
       if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
-      if (q.before) { clauses.push("a.published_at < ?"); params.push(q.before); }
+      if (q.category) {
+        clauses.push("EXISTS (SELECT 1 FROM json_each(a.categories) je WHERE je.value = ?)");
+        params.push(q.category);
+      }
+      // Keyset cursor over (published_at, id): the id half keeps articles that
+      // share the boundary timestamp from being skipped between pages. The id
+      // comparison follows the ORDER BY tiebreak (ascending within a
+      // timestamp), so continuation means id > cursor id.
+      if (q.before) {
+        if (q.beforeId) {
+          clauses.push("(a.published_at < ? OR (a.published_at = ? AND a.id > ?))");
+          params.push(q.before, q.before, q.beforeId);
+        } else {
+          clauses.push("a.published_at < ?");
+          params.push(q.before);
+        }
+      }
       params.push(q.limit);
       const articleColumns = includeContent
         ? "a.*"
         : `a.id, a.feed_id, a.guid, a.url, a.title, a.author, a.published_at,
            NULL AS content_html, NULL AS summary, NULL AS image_url, a.fetched_at`;
+      // Ordering must stay aligned with the keyset cursor below:
+      // (published_at, id) both directions included, so no page boundary can
+      // skip or repeat a row. fetched_at is deliberately not a tiebreak — it
+      // changes on refresh and would corrupt the cursor position.
       const rows = db.prepare(`
         SELECT ${articleColumns}, ua.read_at
         FROM articles a
         JOIN feeds f ON f.id = a.feed_id
         LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
         WHERE ${clauses.join(" AND ")}
-        ORDER BY a.published_at IS NULL, a.published_at DESC, a.fetched_at DESC, a.id
+        ORDER BY a.published_at IS NULL, a.published_at DESC, a.id
         LIMIT ?
       `).all(q.userId, ...params) as Record<string, unknown>[];
       return rows.map((r) => ({ ...rowToArticle(r, includeContent), readAt: (r.read_at as string) ?? null }));
+    },
+
+    listCategories(userId, feedId): CategoryCount[] {
+      const clauses = ["f.user_id = ?"];
+      const params: unknown[] = [userId];
+      if (feedId) { clauses.push("a.feed_id = ?"); params.push(feedId); }
+      const rows = db.prepare(`
+        SELECT je.value AS name, COUNT(*) AS count
+        FROM articles a
+        JOIN feeds f ON f.id = a.feed_id
+        JOIN json_each(a.categories) je
+        WHERE ${clauses.join(" AND ")}
+        GROUP BY je.value
+        ORDER BY count DESC, name ASC
+      `).all(...params) as Record<string, unknown>[];
+      return rows.map((r) => ({ name: r.name as string, count: r.count as number }));
     },
 
     getArticle(userId, articleId): ArticleWithState | null {

@@ -1,5 +1,5 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { api, ApiError, type Article } from "./api";
 import { Sidebar } from "./Sidebar";
@@ -29,6 +29,7 @@ export function App() {
   const articleId = params.articleId ? idFromRouteKey(params.articleId) : null;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [navDir, setNavDir] = useState<"prev" | "next" | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
   const [shortcutHelp, setShortcutHelp] = useState(false);
   const [shortcutNotice, setShortcutNotice] = useState<string | null>(null);
@@ -39,12 +40,28 @@ export function App() {
   const qc = useQueryClient();
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds, refetchInterval: 60_000 });
 
-  const articles = useQuery({
-    queryKey: ["articles", feedId],
-    queryFn: () => api.listArticles(feedId ? { feedId } : {}),
+  const PAGE_SIZE = 50;
+  const articles = useInfiniteQuery({
+    queryKey: ["articles", feedId, category],
+    queryFn: ({ pageParam }) => api.listArticles({
+      ...(feedId ? { feedId } : {}),
+      ...(category ? { category } : {}),
+      limit: PAGE_SIZE,
+      ...pageParam,
+    }),
+    initialPageParam: {} as { before?: string; beforeId?: string },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     refetchInterval: 60_000,
   });
-  const articleFromList = articles.data?.find((item) => item.id === articleId);
+  const categories = useQuery({
+    queryKey: ["categories", feedId],
+    queryFn: () => api.listCategories(feedId ?? undefined),
+  });
+  // Switching feeds or filters invalidates the cursor position; the query key
+  // already resets pages, but a stale selection must not survive either.
+  useEffect(() => { setCategory(null); }, [feedId]);
+  const articleList = articles.data?.pages.flatMap((page) => page.articles) ?? [];
+  const articleFromList = articleList.find((item) => item.id === articleId);
   const deepArticle = useQuery({
     queryKey: ["article", articleId],
     queryFn: () => api.getArticle(articleId!),
@@ -92,7 +109,7 @@ export function App() {
   };
   const showReader = isMobile && (article !== null || articleId !== null);
 
-  const list = articles.data ?? [];
+  const list = articleList;
   const currentIndex = selectedArticle ? list.findIndex((item) => item.id === selectedArticle.id) : -1;
   const prevArticle = currentIndex > 0 ? list[currentIndex - 1] ?? null : null;
   const nextArticle = currentIndex >= 0 && currentIndex < list.length - 1 ? list[currentIndex + 1] ?? null : null;
@@ -127,7 +144,7 @@ export function App() {
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const list = articles.data ?? [];
+      const list = articleList;
       if (event.key === "j" || event.key === "k") {
         event.preventDefault();
         const current = selectedArticle ? list.findIndex((item) => item.id === selectedArticle.id) : -1;
@@ -161,7 +178,11 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
     // refresh.mutate is stable; depending on the mutation object would re-bind the
     // listener every render.
-  }, [articles.data, feedId, feeds.data, navigate, refresh.mutate, selectedArticle, shortcutHelp, toggle]);
+  }, [articleList, feedId, feeds.data, navigate, refresh.mutate, selectedArticle, shortcutHelp, toggle]);
+
+  const loadMore = useCallback(() => {
+    if (articles.hasNextPage && !articles.isFetchingNextPage) void articles.fetchNextPage();
+  }, [articles.hasNextPage, articles.isFetchingNextPage, articles.fetchNextPage]);
 
   const gridStyle = {
     "--sidebar-width": `${layout.sidebarCollapsed ? 52 : layout.sidebarWidth}px`,
@@ -203,10 +224,16 @@ export function App() {
         />
         <ColumnResizer className="sidebar-resizer" label="Resize feeds column" value={layout.sidebarWidth} onResize={(delta) => resize("sidebar", delta)} />
         <ArticleList
-          articles={articles.data ?? []}
+          articles={articleList}
           loading={articles.isLoading}
           selectedId={articleId ?? article?.id ?? null}
           onSelect={selectArticle}
+          categories={categories.data ?? []}
+          selectedCategory={category}
+          onSelectCategory={setCategory}
+          hasMore={articles.hasNextPage}
+          loadingMore={articles.isFetchingNextPage}
+          onLoadMore={loadMore}
           collapsed={layout.listCollapsed}
           onToggleCollapsed={() => toggle("list")}
           onActionError={setShortcutNotice}

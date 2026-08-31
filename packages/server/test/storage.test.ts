@@ -46,6 +46,61 @@ describe("sqlite storage", () => {
     expect(storage.listArticles({ userId, limit: 50 })).toHaveLength(2);
   });
 
+  it("stores feed categories and filters the list by them", () => {
+    const feed = makeFeed();
+    storage.upsertArticles(feed.id, [
+      { guid: "c1", url: null, title: "News", author: null, publishedAt: null, contentHtml: null, summary: "s", categories: ["World", "Politics"] },
+      { guid: "c2", url: null, title: "Tech", author: null, publishedAt: null, contentHtml: null, summary: "s", categories: ["Tech"] },
+      { guid: "c3", url: null, title: "Untagged", author: null, publishedAt: null, contentHtml: null, summary: "s" },
+    ], identity);
+    const listed = storage.listArticles({ userId, limit: 50 });
+    expect(listed.find((a) => a.guid === "c1")?.categories).toEqual(["World", "Politics"]);
+    expect(listed.find((a) => a.guid === "c3")?.categories).toEqual([]);
+    expect(storage.listArticles({ userId, limit: 50, category: "World" }).map((a) => a.guid)).toEqual(["c1"]);
+    expect(storage.listArticles({ userId, limit: 50, category: "Tech" }).map((a) => a.guid)).toEqual(["c2"]);
+    expect(storage.listArticles({ userId, limit: 50, category: "Missing" })).toHaveLength(0);
+  });
+
+  it("lists category counts scoped to a feed", () => {
+    const feedA = makeFeed("https://a.example.com/a.xml");
+    const feedB = makeFeed("https://b.example.com/b.xml");
+    storage.upsertArticles(feedA.id, [
+      { guid: "a1", url: null, title: "A1", author: null, publishedAt: null, contentHtml: null, summary: "s", categories: ["World", "Politics"] },
+      { guid: "a2", url: null, title: "A2", author: null, publishedAt: null, contentHtml: null, summary: "s", categories: ["World"] },
+    ], identity);
+    storage.upsertArticles(feedB.id, [
+      { guid: "b1", url: null, title: "B1", author: null, publishedAt: null, contentHtml: null, summary: "s", categories: ["Tech"] },
+    ], identity);
+    expect(storage.listCategories(userId)).toEqual([
+      { name: "World", count: 2 }, { name: "Politics", count: 1 }, { name: "Tech", count: 1 },
+    ]);
+    expect(storage.listCategories(userId, feedA.id)).toEqual([
+      { name: "World", count: 2 }, { name: "Politics", count: 1 },
+    ]);
+  });
+
+  it("pages by (published_at, id) without skipping same-timestamp articles", () => {
+    const feed = makeFeed();
+    const at = (iso: string) => new Date(iso);
+    const arts = [
+      { guid: "p1", url: null, title: "P1", author: null, publishedAt: at("2026-07-01T10:00:00Z"), contentHtml: null, summary: "s" },
+      { guid: "p2", url: null, title: "P2", author: null, publishedAt: at("2026-07-01T10:00:00Z"), contentHtml: null, summary: "s" },
+      { guid: "p3", url: null, title: "P3", author: null, publishedAt: at("2026-07-01T10:00:00Z"), contentHtml: null, summary: "s" },
+      { guid: "p4", url: null, title: "P4", author: null, publishedAt: at("2026-06-30T09:00:00Z"), contentHtml: null, summary: "s" },
+    ];
+    storage.upsertArticles(feed.id, arts, identity);
+    const page1 = storage.listArticles({ userId, limit: 2 });
+    expect(page1.map((a) => a.guid)).toHaveLength(2);
+    const cursor = page1[page1.length - 1]!;
+    const page2 = storage.listArticles({
+      userId, limit: 2,
+      before: cursor.publishedAt!, beforeId: cursor.id,
+    });
+    const seen = [...page1, ...page2].map((a) => a.guid);
+    expect(new Set(seen).size).toBe(4);
+    expect(seen).toContain("p4");
+  });
+
   it("promotes markup summaries and formats plain feed bodies", () => {
     const feed = makeFeed();
     storage.upsertArticles(feed.id, [

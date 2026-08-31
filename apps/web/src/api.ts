@@ -7,7 +7,11 @@ export interface Article {
   id: string; feedId: string; title: string; url: string | null;
   author: string | null; publishedAt: string | null;
   contentHtml: string | null; summary: string | null; imageUrl?: string | null; readAt: string | null;
+  categories?: string[];
 }
+export interface CategoryCount { name: string; count: number }
+export interface ArticleCursor { before: string; beforeId: string }
+export interface ArticlePage { articles: Article[]; nextCursor: ArticleCursor | null }
 export interface DiscoveredFeed { url: string; title: string; kind: "rss" | "atom" | "json" }
 export type SubscribeResult = { status: "subscribed"; feed: Feed } | { status: "choices"; feeds: DiscoveredFeed[] };
 export interface FeedRefreshResult {
@@ -79,11 +83,19 @@ export const api = {
   },
   discover: (url: string) => req<{ feeds: DiscoveredFeed[] }>("/api/v1/feeds/discover", { method: "POST", json: { url } }).then((r) => r.feeds),
   unsubscribe: (id: string) => req<void>(`/api/v1/feeds/${id}`, { method: "DELETE" }),
-  listArticles: (params: { feedId?: string; unread?: boolean } = {}) => {
+  listArticles: (params: { feedId?: string; category?: string; before?: string; beforeId?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.feedId) q.set("feed_id", params.feedId);
-    if (params.unread) q.set("unread", "1");
-    return req<{ articles: Article[] }>(`/api/v1/articles?${q}`).then((r) => r.articles);
+    if (params.category) q.set("category", params.category);
+    if (params.before) q.set("before", params.before);
+    if (params.beforeId) q.set("before_id", params.beforeId);
+    if (params.limit) q.set("limit", String(params.limit));
+    return req<ArticlePage>(`/api/v1/articles?${q}`);
+  },
+  listCategories: (feedId?: string) => {
+    const q = new URLSearchParams();
+    if (feedId) q.set("feed_id", feedId);
+    return req<{ categories: CategoryCount[] }>(`/api/v1/categories?${q}`).then((r) => r.categories);
   },
   getArticle: (id: string) => req<Article>(`/api/v1/articles/${encodeURIComponent(id)}`),
   setRead: (id: string, read: boolean) =>

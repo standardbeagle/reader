@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import { createServer } from "../src/api/server.js";
 import { startFixtureServer } from "./fixtureServer.js";
 import type { FastifyInstance } from "fastify";
+import type { FixtureFeed } from "./fixtureServer.js";
 
 const RSS = `<?xml version="1.0"?>
 <rss version="2.0"><channel>
@@ -21,10 +22,11 @@ const PLAIN_HTML = `<html><head></head><body>plain</body></html>`;
 
 let app: FastifyInstance;
 let fixture: Server;
+let fixtureState: Map<string, FixtureFeed>;
 let baseUrl: string;
 
 beforeEach(async () => {
-  ({ server: fixture, baseUrl } = await startFixtureServer({
+  ({ server: fixture, baseUrl, state: fixtureState } = await startFixtureServer({
     "/feed.xml": { xml: RSS, etag: '"e1"' },
     "/site": { xml: SITE_HTML, contentType: "text/html" },
   }));
@@ -153,6 +155,59 @@ describe("api", () => {
     await app.inject({ method: "POST", url: `/api/v1/articles/${a.id}/read`, payload: { read: false } });
     const again = await app.inject({ method: "GET", url: "/api/v1/articles?unread=1" });
     expect(again.json().articles).toHaveLength(1);
+  });
+
+  it("exposes category counts and filters articles by category", async () => {
+    await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml` } });
+    const none = await app.inject({ method: "GET", url: "/api/v1/categories" });
+    expect(none.json().categories).toEqual([]);
+
+    const feed = (await app.inject({ method: "GET", url: "/api/v1/feeds" })).json().feeds[0];
+    const rss = `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Cat Blog</title><link>https://cat.example.com</link>
+<item><title>C1</title><guid>cat-1</guid><category>World</category><category>Tech</category>
+<pubDate>Wed, 01 Jul 2026 12:00:00 GMT</pubDate></item>
+<item><title>C2</title><guid>cat-2</guid><category>World</category>
+<pubDate>Tue, 30 Jun 2026 12:00:00 GMT</pubDate></item>
+</channel></rss>`;
+    const feedFixture = fixtureState.get("/feed.xml")!;
+    feedFixture.xml = rss;
+    delete feedFixture.etag;
+    await app.inject({ method: "POST", url: `/api/v1/feeds/${feed.id}/refresh` });
+
+    const counts = await app.inject({ method: "GET", url: `/api/v1/categories?feed_id=${feed.id}` });
+    expect(counts.json().categories).toEqual([
+      { name: "World", count: 2 }, { name: "Tech", count: 1 },
+    ]);
+
+    const world = await app.inject({ method: "GET", url: `/api/v1/articles?category=World` });
+    expect(world.json().articles.map((a: { title: string }) => a.title)).toEqual(["C1", "C2"]);
+    const tech = await app.inject({ method: "GET", url: `/api/v1/articles?category=Tech` });
+    expect(tech.json().articles.map((a: { title: string }) => a.title)).toEqual(["C1"]);
+  });
+
+  it("returns a keyset cursor and pages without overlap", async () => {
+    const rss = `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Paged Blog</title><link>https://paged.example.com</link>
+${[1, 2, 3].map((i) => `<item><title>P${i}</title><guid>paged-${i}</guid><pubDate>Wed, 0${i} Jul 2026 12:00:00 GMT</pubDate></item>`).join("\n")}
+</channel></rss>`;
+    const feedFixture = fixtureState.get("/feed.xml")!;
+    feedFixture.xml = rss;
+    delete feedFixture.etag;
+    const created = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml` } });
+
+    const page1 = await app.inject({ method: "GET", url: "/api/v1/articles?limit=2&feed_id=" + created.json().id });
+    const body1 = page1.json();
+    expect(body1.articles.map((a: { title: string }) => a.title)).toEqual(["P3", "P2"]);
+    expect(body1.nextCursor).toEqual({ before: body1.articles[1].publishedAt, beforeId: body1.articles[1].id });
+
+    const page2 = await app.inject({
+      method: "GET",
+      url: `/api/v1/articles?limit=2&feed_id=${created.json().id}&before=${encodeURIComponent(body1.nextCursor.before)}&before_id=${body1.nextCursor.beforeId}`,
+    });
+    const body2 = page2.json();
+    expect(body2.articles.map((a: { title: string }) => a.title)).toEqual(["P1"]);
+    expect(body2.nextCursor).toBeNull();
   });
 
   it("mark-all-read clears unread count", async () => {

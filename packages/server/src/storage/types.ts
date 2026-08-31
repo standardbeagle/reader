@@ -29,6 +29,8 @@ export interface Article {
   contentHtml: string | null;
   summary: string | null;
   imageUrl: string | null;
+  /** Subject tags from the feed, stored as a JSON array column. */
+  categories: string[];
   fetchedAt: string;
 }
 
@@ -40,10 +42,19 @@ export interface ArticleQuery {
   userId: string;
   feedId?: string;
   unreadOnly?: boolean;
+  category?: string;
   before?: string; // ISO date cursor on published_at
+  /** Second half of the (published_at, id) keyset cursor; prevents skipping
+   *  articles that share the boundary timestamp. */
+  beforeId?: string;
   limit: number;
   /** Keep list responses light unless a caller explicitly needs article content. */
   includeContent?: boolean;
+}
+
+export interface CategoryCount {
+  name: string;
+  count: number;
 }
 
 export interface FetchState {
@@ -106,6 +117,7 @@ export interface Storage {
   updateFeedFetchState(id: string, state: FetchState): void;
   upsertArticles(feedId: string, articles: ParsedArticle[], sanitize: (html: string, baseUrl?: string) => string, baseUrl?: string): Article[];
   listArticles(q: ArticleQuery): ArticleWithState[];
+  listCategories(userId: string, feedId?: string): CategoryCount[];
   getArticle(userId: string, articleId: string): ArticleWithState | null;
   setRead(userId: string, articleId: string, read: boolean): void;
   markAllRead(userId: string, feedId: string): void;

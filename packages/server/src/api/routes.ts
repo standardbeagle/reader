@@ -5,7 +5,7 @@ import { discoverFeeds } from "../discovery/discover.js";
 
 interface SubscribeBody { url?: string }
 interface ReadBody { read?: boolean }
-interface ArticleQuery { feed_id?: string; unread?: string; before?: string; limit?: string; content?: string }
+interface ArticleQuery { feed_id?: string; unread?: string; category?: string; before?: string; before_id?: string; limit?: string; content?: string }
 
 export function registerRoutes(app: FastifyInstance, storage: Storage, poller: Poller): void {
   const userId = () => storage.getOrCreateLocalUser().id;
@@ -114,11 +114,21 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
       userId: userId(),
       ...(req.query.feed_id ? { feedId: req.query.feed_id } : {}),
       unreadOnly: req.query.unread === "1",
+      ...(req.query.category ? { category: req.query.category } : {}),
       ...(req.query.before ? { before: req.query.before } : {}),
+      ...(req.query.before_id ? { beforeId: req.query.before_id } : {}),
       limit,
       includeContent: req.query.content === "1",
     });
-    return { articles };
+    // Full page = assume more exist; cursor is the last row's keyset position.
+    const last = articles.length === limit ? articles[articles.length - 1] : undefined;
+    const nextCursor = last?.publishedAt ? { before: last.publishedAt, beforeId: last.id } : null;
+    return { articles, nextCursor };
+  });
+
+  app.get<{ Querystring: { feed_id?: string } }>("/api/v1/categories", async (req) => {
+    const categories = storage.listCategories(userId(), req.query.feed_id || undefined);
+    return { categories };
   });
 
   app.get<{ Params: { id: string } }>("/api/v1/articles/:id", async (req, reply) => {

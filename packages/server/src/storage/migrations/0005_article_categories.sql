@@ -1,0 +1,1 @@
+ALTER TABLE articles ADD COLUMN categories TEXT NOT NULL DEFAULT '[]';

@@ -8,6 +8,9 @@ const parser = new Parser({
     item: [
       ["media:thumbnail", "media:thumbnail", { keepArray: true }],
       ["media:content", "media:content", { keepArray: true }],
+      // Atom <category> elements carry the subject in attributes; without this
+      // custom field some Atom feeds lose categories entirely.
+      ["category", "category", { keepArray: true }],
     ],
   },
 });
@@ -30,6 +33,29 @@ function mediaUrl(item: Record<string, unknown>): string | null {
   return firstMediaUrl(item.enclosure)
     ?? firstMediaUrl(item["media:thumbnail"])
     ?? firstMediaUrl(item["media:content"]);
+}
+
+// RSS <category> maps to strings; Atom <category term="x"> maps to objects.
+const MAX_CATEGORIES = 8;
+const MAX_CATEGORY_LEN = 40;
+
+function articleCategories(item: Record<string, unknown>): string[] {
+  const raw = item.categories ?? item.category;
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const out = new Set<string>();
+  for (const value of values) {
+    let name: string | null = null;
+    if (typeof value === "string") name = value;
+    else if (value && typeof value === "object") {
+      const attributes = (value as Record<string, unknown>).$ as Record<string, unknown> | undefined;
+      const term = (attributes?.term ?? attributes?.label ?? (value as Record<string, unknown>).term) as unknown;
+      if (typeof term === "string") name = term;
+    }
+    const trimmed = name?.trim().slice(0, MAX_CATEGORY_LEN);
+    if (trimmed) out.add(trimmed);
+    if (out.size >= MAX_CATEGORIES) break;
+  }
+  return [...out];
 }
 
 // The transitive XML stack does not expand custom entities today, but a DOCTYPE
@@ -68,6 +94,7 @@ export async function parseFeed(xml: string): Promise<ParsedFeed> {
       contentHtml,
       summary: rawContent ? rawSummary : contentHtml ? null : rawSummary,
       imageUrl: mediaUrl(it),
+      categories: articleCategories(it),
     };
   });
   return {

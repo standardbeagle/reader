@@ -41,6 +41,24 @@ describe("parseFeed", () => {
     expect(feed.articles[0]!.guid).toBe("tag:example.com,2026:1");
   });
 
+  it("collects subject categories from RSS and Atom items", async () => {
+    const rss = `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>C</title><link>https://c.example.com</link>
+<item><title>A</title><guid>cs1</guid>
+<category>World</category><category>  Politics </category><category>World</category>
+<category>${"x".repeat(60)}</category>
+</item></channel></rss>`;
+    const atom = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>AF</title>
+<entry><title>E</title><id>tag:example.com,2026:cs2</id>
+<category term="Tech"/><category label="Science" term="Science"/>
+</entry></feed>`;
+    const rssFeed = await parseFeed(rss);
+    expect(rssFeed.articles[0]!.categories).toEqual(["World", "Politics", "x".repeat(40)]);
+    const atomFeed = await parseFeed(atom);
+    expect(atomFeed.articles[0]!.categories).toEqual(["Tech", "Science"]);
+  });
+
   it("promotes HTML summaries and keeps enclosure media", async () => {
     const feed = await parseFeed(`<?xml version="1.0"?>
       <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">

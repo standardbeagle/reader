@@ -7,6 +7,8 @@ export interface ParsedArticle {
   contentHtml: string | null;
   summary: string | null;
   imageUrl?: string | null;
+  /** Subject tags from the feed (RSS <category> / Atom <category term>). */
+  categories?: string[];
 }
 
 export interface ParsedFeed {
