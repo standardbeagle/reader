@@ -2,6 +2,8 @@
 
 A Google Reader clone for the agent era — an RSS/Atom feed reader that runs as an **Electron desktop app** or a **hosted web service** from one shared TypeScript codebase.
 
+📚 **Docs: [dev.standardbeagle.com/reader](https://dev.standardbeagle.com/reader)** — quick start, user guide, API reference, hosting, configuration, and changelog.
+
 ![article view](docs/screenshots/article-view.png)
 
 RSS was always pull-based updates from publishers. Agents are exactly the kind of prolific, structured publishers that drown a chat UI but fit a feed perfectly. This reader treats feeds as the universal subscription format — blogs today, agent digests tomorrow.
