@@ -36,11 +36,18 @@ export interface Article {
 
 export interface ArticleWithState extends Article {
   readAt: string | null;
+  /** When set and in the future, the article stays unread but is hidden from
+   *  the default list and unread counts until this time passes. */
+  snoozedUntil: string | null;
+  /** Saved lists this article belongs to (populated by getArticle). */
+  listIds?: string[];
 }
 
 export interface ArticleQuery {
   userId: string;
   feedId?: string;
+  /** Restrict to articles saved in this list. */
+  listId?: string;
   unreadOnly?: boolean;
   category?: string;
   before?: string; // ISO date cursor on published_at
@@ -50,6 +57,24 @@ export interface ArticleQuery {
   limit: number;
   /** Keep list responses light unless a caller explicitly needs article content. */
   includeContent?: boolean;
+  /** Include actively snoozed articles instead of hiding them. */
+  includeSnoozed?: boolean;
+}
+
+export type ListVisibility = "public" | "private";
+
+export interface SavedList {
+  id: string;
+  userId: string;
+  title: string;
+  visibility: ListVisibility;
+  /** Capability token for the public RSS URL; meaningless for private lists. */
+  token: string;
+  createdAt: string;
+}
+
+export interface SavedListWithCount extends SavedList {
+  itemCount: number;
 }
 
 export interface CategoryCount {
@@ -120,8 +145,19 @@ export interface Storage {
   listCategories(userId: string, feedId?: string): CategoryCount[];
   getArticle(userId: string, articleId: string): ArticleWithState | null;
   setRead(userId: string, articleId: string, read: boolean): void;
+  /** until=null clears the snooze; the article stays unread either way. */
+  setSnooze(userId: string, articleId: string, until: Date | null): void;
   markAllRead(userId: string, feedId: string): void;
   unreadCounts(userId: string): Record<string, number>;
+  createList(userId: string, input: { title: string; visibility: ListVisibility }): SavedList;
+  listLists(userId: string): SavedListWithCount[];
+  getList(id: string): SavedList | null;
+  getListByToken(token: string): SavedList | null;
+  deleteList(id: string): void;
+  addToList(listId: string, articleId: string): void;
+  removeFromList(listId: string, articleId: string): void;
+  /** Articles in a list, newest saved first, content included (for RSS output). */
+  listListArticles(listId: string, limit: number): Article[];
   createIngestor(userId: string, input: { kind: IngestorKind; config: Record<string, unknown>; feedId: string }): Ingestor;
   listIngestors(userId: string): Ingestor[];
   getIngestor(id: string): Ingestor | null;

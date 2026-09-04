@@ -7,7 +7,14 @@ export interface Article {
   id: string; feedId: string; title: string; url: string | null;
   author: string | null; publishedAt: string | null;
   contentHtml: string | null; summary: string | null; imageUrl?: string | null; readAt: string | null;
+  snoozedUntil?: string | null;
+  /** Saved lists this article belongs to (present on single-article fetches). */
+  listIds?: string[];
   categories?: string[];
+}
+export interface SavedList {
+  id: string; title: string; visibility: "public" | "private";
+  token: string; createdAt: string; itemCount: number;
 }
 export interface CategoryCount { name: string; count: number }
 export interface ArticleCursor { before: string; beforeId: string }
@@ -83,9 +90,10 @@ export const api = {
   },
   discover: (url: string) => req<{ feeds: DiscoveredFeed[] }>("/api/v1/feeds/discover", { method: "POST", json: { url } }).then((r) => r.feeds),
   unsubscribe: (id: string) => req<void>(`/api/v1/feeds/${id}`, { method: "DELETE" }),
-  listArticles: (params: { feedId?: string; category?: string; before?: string; beforeId?: string; limit?: number } = {}) => {
+  listArticles: (params: { feedId?: string; listId?: string; category?: string; before?: string; beforeId?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.feedId) q.set("feed_id", params.feedId);
+    if (params.listId) q.set("list_id", params.listId);
     if (params.category) q.set("category", params.category);
     if (params.before) q.set("before", params.before);
     if (params.beforeId) q.set("before_id", params.beforeId);
@@ -100,6 +108,16 @@ export const api = {
   getArticle: (id: string) => req<Article>(`/api/v1/articles/${encodeURIComponent(id)}`),
   setRead: (id: string, read: boolean) =>
     req<void>(`/api/v1/articles/${id}/read`, { method: "POST", json: { read } }),
+  setSnooze: (id: string, until: string | null) =>
+    req<void>(`/api/v1/articles/${id}/snooze`, { method: "POST", json: { until } }),
+  listLists: () => req<{ lists: SavedList[] }>("/api/v1/lists").then((r) => r.lists),
+  createList: (input: { title: string; visibility: "public" | "private" }) =>
+    req<SavedList>("/api/v1/lists", { method: "POST", json: input }),
+  deleteList: (id: string) => req<void>(`/api/v1/lists/${id}`, { method: "DELETE" }),
+  addToList: (listId: string, articleId: string) =>
+    req<void>(`/api/v1/lists/${listId}/items`, { method: "POST", json: { articleId } }),
+  removeFromList: (listId: string, articleId: string) =>
+    req<void>(`/api/v1/lists/${listId}/items/${articleId}`, { method: "DELETE" }),
   markAllRead: (feedId: string) =>
     req<void>(`/api/v1/feeds/${feedId}/mark-all-read`, { method: "POST" }),
   listIngestors: () => req<{ ingestors: Ingestor[] }>("/api/v1/ingestors").then((r) => r.ingestors),

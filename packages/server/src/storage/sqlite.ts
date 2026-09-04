@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   Storage, User, Feed, Article, ArticleWithState, ArticleQuery, FetchState,
-  NormalizedItem, Ingestor, IngestorPatch, CategoryCount,
+  NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount,
 } from "./types.js";
 import { looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
 
@@ -103,6 +103,16 @@ export function createSqliteStorage(path: string): Storage {
       imageUrl: includeContent ? (r.image_url as string) ?? null : null,
       categories: categoriesFromJson(r.categories),
       fetchedAt: r.fetched_at as string,
+    };
+  }
+
+  function rowToList(r: Record<string, unknown>): SavedList {
+    return {
+      id: r.id as string, userId: r.user_id as string,
+      title: r.title as string,
+      visibility: r.visibility as SavedList["visibility"],
+      token: r.token as string,
+      createdAt: r.created_at as string,
     };
   }
 
@@ -264,7 +274,12 @@ export function createSqliteStorage(path: string): Storage {
       const clauses = ["f.user_id = ?"];
       const params: unknown[] = [q.userId];
       if (q.feedId) { clauses.push("a.feed_id = ?"); params.push(q.feedId); }
+      if (q.listId) { clauses.push("li.list_id = ?"); params.push(q.listId); }
       if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
+      if (!q.includeSnoozed) {
+        clauses.push("(ua.snoozed_until IS NULL OR ua.snoozed_until <= ?)");
+        params.push(new Date().toISOString());
+      }
       if (q.category) {
         clauses.push("EXISTS (SELECT 1 FROM json_each(a.categories) je WHERE je.value = ?)");
         params.push(q.category);
@@ -292,15 +307,20 @@ export function createSqliteStorage(path: string): Storage {
       // skip or repeat a row. fetched_at is deliberately not a tiebreak — it
       // changes on refresh and would corrupt the cursor position.
       const rows = db.prepare(`
-        SELECT ${articleColumns}, ua.read_at
+        SELECT ${articleColumns}, ua.read_at, ua.snoozed_until
         FROM articles a
         JOIN feeds f ON f.id = a.feed_id
+        ${q.listId ? "JOIN list_items li ON li.article_id = a.id" : ""}
         LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
         WHERE ${clauses.join(" AND ")}
         ORDER BY a.published_at IS NULL, a.published_at DESC, a.id
         LIMIT ?
       `).all(q.userId, ...params) as Record<string, unknown>[];
-      return rows.map((r) => ({ ...rowToArticle(r, includeContent), readAt: (r.read_at as string) ?? null }));
+      return rows.map((r) => ({
+        ...rowToArticle(r, includeContent),
+        readAt: (r.read_at as string) ?? null,
+        snoozedUntil: (r.snoozed_until as string) ?? null,
+      }));
     },
 
     listCategories(userId, feedId): CategoryCount[] {
@@ -321,13 +341,24 @@ export function createSqliteStorage(path: string): Storage {
 
     getArticle(userId, articleId): ArticleWithState | null {
       const row = db.prepare(`
-        SELECT a.*, ua.read_at, f.site_url AS feed_site_url, f.url AS feed_url
+        SELECT a.*, ua.read_at, ua.snoozed_until, f.site_url AS feed_site_url, f.url AS feed_url
         FROM articles a
         JOIN feeds f ON f.id = a.feed_id
         LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
         WHERE a.id = ? AND f.user_id = ?
       `).get(userId, articleId, userId) as Record<string, unknown> | undefined;
-      return row ? { ...rowToArticle(row), readAt: (row.read_at as string) ?? null } : null;
+      if (!row) return null;
+      const listRows = db.prepare(`
+        SELECT li.list_id FROM list_items li
+        JOIN lists l ON l.id = li.list_id
+        WHERE li.article_id = ? AND l.user_id = ?
+      `).all(articleId, userId) as { list_id: string }[];
+      return {
+        ...rowToArticle(row),
+        readAt: (row.read_at as string) ?? null,
+        snoozedUntil: (row.snoozed_until as string) ?? null,
+        listIds: listRows.map((r) => r.list_id),
+      };
     },
 
     setRead(userId, articleId, read) {
@@ -336,6 +367,19 @@ export function createSqliteStorage(path: string): Storage {
         VALUES (?, ?, ?, NULL)
         ON CONFLICT (user_id, article_id) DO UPDATE SET read_at = excluded.read_at
       `).run(userId, articleId, read ? new Date().toISOString() : null);
+    },
+
+    setSnooze(userId, articleId, until) {
+      // Setting a snooze also clears read_at: a snoozed article comes back
+      // unread when the snooze expires. Clearing the snooze leaves read_at
+      // alone, and marking read never clears the snooze.
+      db.prepare(`
+        INSERT INTO user_articles (user_id, article_id, read_at, starred_at, snoozed_until)
+        VALUES (?, ?, NULL, NULL, ?)
+        ON CONFLICT (user_id, article_id) DO UPDATE SET
+          snoozed_until = excluded.snoozed_until,
+          read_at = CASE WHEN excluded.snoozed_until IS NOT NULL THEN NULL ELSE read_at END
+      `).run(userId, articleId, until ? until.toISOString() : null);
     },
 
     markAllRead(userId, feedId) {
@@ -353,9 +397,68 @@ export function createSqliteStorage(path: string): Storage {
         JOIN feeds f ON f.id = a.feed_id
         LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
         WHERE f.user_id = ? AND ua.read_at IS NULL
+          AND (ua.snoozed_until IS NULL OR ua.snoozed_until <= ?)
         GROUP BY a.feed_id
-      `).all(userId, userId) as { feed_id: string; n: number }[];
+      `).all(userId, userId, new Date().toISOString()) as { feed_id: string; n: number }[];
       return Object.fromEntries(rows.map((r) => [r.feed_id, r.n]));
+    },
+
+    createList(userId, input): SavedList {
+      const id = randomUUID();
+      const token = randomUUID();
+      db.prepare(`INSERT INTO lists (id, user_id, title, visibility, token, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(id, userId, input.title, input.visibility, token, new Date().toISOString());
+      return this.getList(id)!;
+    },
+
+    listLists(userId): SavedListWithCount[] {
+      const rows = db.prepare(`
+        SELECT l.*, COUNT(li.article_id) AS item_count
+        FROM lists l
+        LEFT JOIN list_items li ON li.list_id = l.id
+        WHERE l.user_id = ?
+        GROUP BY l.id
+        ORDER BY l.created_at
+      `).all(userId) as Record<string, unknown>[];
+      return rows.map((r) => ({ ...rowToList(r), itemCount: r.item_count as number }));
+    },
+
+    getList(id): SavedList | null {
+      const r = db.prepare("SELECT * FROM lists WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+      return r ? rowToList(r) : null;
+    },
+
+    getListByToken(token): SavedList | null {
+      const r = db.prepare("SELECT * FROM lists WHERE token = ?").get(token) as Record<string, unknown> | undefined;
+      return r ? rowToList(r) : null;
+    },
+
+    deleteList(id) { db.prepare("DELETE FROM lists WHERE id = ?").run(id); },
+
+    addToList(listId, articleId) {
+      db.prepare(`
+        INSERT INTO list_items (list_id, article_id, added_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT (list_id, article_id) DO NOTHING
+      `).run(listId, articleId, new Date().toISOString());
+    },
+
+    removeFromList(listId, articleId) {
+      db.prepare("DELETE FROM list_items WHERE list_id = ? AND article_id = ?").run(listId, articleId);
+    },
+
+    listListArticles(listId, limit): Article[] {
+      const rows = db.prepare(`
+        SELECT a.*, f.site_url AS feed_site_url, f.url AS feed_url
+        FROM list_items li
+        JOIN articles a ON a.id = li.article_id
+        JOIN feeds f ON f.id = a.feed_id
+        WHERE li.list_id = ?
+        ORDER BY li.added_at DESC, li.rowid DESC
+        LIMIT ?
+      `).all(listId, limit) as Record<string, unknown>[];
+      return rows.map((r) => rowToArticle(r, true));
     },
 
     createIngestor(userId, input): Ingestor {

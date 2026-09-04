@@ -11,6 +11,8 @@ RSS was always pull-based updates from publishers. Agents are exactly the kind o
 - **Feed reading** — RSS 2.0 / Atom subscriptions, background polling with conditional GET (etag/last-modified), adaptive refresh intervals, exponential backoff on failures
 - **Classic three-pane UI** — folders/feeds · article list · article view, like the original
 - **Read state** — mark read on click, mark-all-read, per-feed unread counts
+- **Snooze** — hide an article until later (later today / tomorrow / next week); it stays unread and resurfaces when the snooze expires
+- **Saved lists** — permanent collections of articles, public or private; every public list is itself an RSS feed at `/lists/<token>.xml`
 - **XSS-safe rendering** — every article body sanitized server-side with DOMPurify
 - **Local-first** — embedded SQLite, no account needed; the hosted mode shares the same codebase
 - **Loopback-only by default** — binds 127.0.0.1; exposure is a deliberate opt-in

@@ -22,6 +22,8 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/" element={<App />} />
           <Route path="/feeds/:feedId" element={<App />} />
           <Route path="/feeds/:feedId/articles/:articleId" element={<App />} />
+          <Route path="/lists/:listId" element={<App />} />
+          <Route path="/lists/:listId/articles/:articleId" element={<App />} />
           <Route path="/articles/:articleId" element={<App />} />
           <Route path="*" element={<App />} />
         </Routes>

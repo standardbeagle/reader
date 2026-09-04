@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { Article } from "./api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, type Article } from "./api";
 import { safeUrl } from "./urls";
+import { SaveToListDialog } from "./ListDialogs";
 
 const SWIPE_OPEN_PX = 12;
 const SWIPE_COMMIT_PX = 64;
@@ -22,6 +24,7 @@ export function ArticleView(props: {
   error?: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  onActionError?: (message: string) => void;
 }) {
   // Two-layer push transition: when the article changes, the outgoing one
   // stays mounted as an absolutely-positioned snapshot that animates out
@@ -170,6 +173,7 @@ export function ArticleView(props: {
             </div>
             <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="reader-panel">Collapse reader</button>
           </div>
+          <ArticleActions a={a} onActionError={props.onActionError} />
           <ReaderBody a={a} view={view} setView={setView} showTabs={Boolean(safeUrl(a.url))} />
           {showNav && (
             <nav className="article-nav" aria-label="Article navigation">
@@ -292,6 +296,74 @@ function ReaderBody(props: {
         </div>
       )}
     </>
+  );
+}
+
+function snoozePresets(now: Date): { label: string; until: Date }[] {
+  const later = new Date(now.getTime() + 3 * 3_600_000);
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
+  const nextWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 9, 0, 0);
+  return [
+    { label: "Later today", until: later },
+    { label: "Tomorrow", until: tomorrow },
+    { label: "Next week", until: nextWeek },
+  ];
+}
+
+function ArticleActions({ a, onActionError }: { a: Article; onActionError?: ((message: string) => void) | undefined }) {
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const qc = useQueryClient();
+  useEffect(() => { setSnoozeOpen(false); setSaveOpen(false); }, [a.id]);
+  const snooze = useMutation({
+    mutationFn: (until: string | null) => api.setSnooze(a.id, until),
+    onSuccess: () => {
+      setSnoozeOpen(false);
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      qc.invalidateQueries({ queryKey: ["feeds"] });
+      qc.invalidateQueries({ queryKey: ["article", a.id] });
+    },
+    onError: () => onActionError?.("Could not snooze that article."),
+  });
+  const snoozedUntil = a.snoozedUntil ? new Date(a.snoozedUntil) : null;
+  const isSnoozed = Boolean(snoozedUntil && snoozedUntil.getTime() > Date.now());
+  return (
+    <div className="article-actions">
+      {isSnoozed && snoozedUntil && (
+        <span className="snooze-state">Snoozed until {snoozedUntil.toLocaleString()}</span>
+      )}
+      <span className="snooze-wrap">
+        <button
+          type="button"
+          aria-expanded={snoozeOpen}
+          aria-haspopup="menu"
+          onClick={() => setSnoozeOpen((open) => !open)}
+        >Snooze</button>
+        {snoozeOpen && (
+          <span className="snooze-menu" role="menu">
+            {snoozePresets(new Date()).map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                role="menuitem"
+                disabled={snooze.isPending}
+                onClick={() => snooze.mutate(preset.until.toISOString())}
+              >{preset.label}</button>
+            ))}
+            {a.snoozedUntil && (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={snooze.isPending}
+                onClick={() => snooze.mutate(null)}
+              >Unsnooze</button>
+            )}
+          </span>
+        )}
+      </span>
+      <button type="button" onClick={() => setSaveOpen(true)}>Save to list</button>
+      {saveOpen && <SaveToListDialog article={a} onClose={() => setSaveOpen(false)} onActionError={onActionError} />}
+    </div>
   );
 }
 

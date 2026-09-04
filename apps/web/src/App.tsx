@@ -21,11 +21,20 @@ function articlePath(article: Article, feedTitle?: string | null): string {
   return `/feeds/${routeKey(feedTitle ?? "feed", article.feedId)}/articles/${routeKey(article.title, article.id)}`;
 }
 
+function listPath(listId: string, listTitle?: string | null): string {
+  return `/lists/${routeKey(listTitle ?? "list", listId)}`;
+}
+
+function listArticlePath(article: Article, listId: string, listTitle?: string | null): string {
+  return `${listPath(listId, listTitle)}/articles/${routeKey(article.title, article.id)}`;
+}
+
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = useParams<{ feedId?: string; articleId?: string }>();
+  const params = useParams<{ feedId?: string; listId?: string; articleId?: string }>();
   const feedId = params.feedId ? idFromRouteKey(params.feedId) : null;
+  const listId = params.listId ? idFromRouteKey(params.listId) : null;
   const articleId = params.articleId ? idFromRouteKey(params.articleId) : null;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [navDir, setNavDir] = useState<"prev" | "next" | null>(null);
@@ -39,12 +48,14 @@ export function App() {
   const { layout, resize, toggle } = useColumnLayout();
   const qc = useQueryClient();
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds, refetchInterval: 60_000 });
+  const lists = useQuery({ queryKey: ["lists"], queryFn: api.listLists });
 
   const PAGE_SIZE = 50;
   const articles = useInfiniteQuery({
-    queryKey: ["articles", feedId, category],
+    queryKey: ["articles", feedId, listId, category],
     queryFn: ({ pageParam }) => api.listArticles({
       ...(feedId ? { feedId } : {}),
+      ...(listId ? { listId } : {}),
       ...(category ? { category } : {}),
       limit: PAGE_SIZE,
       ...pageParam,
@@ -59,10 +70,12 @@ export function App() {
   const categories = useQuery({
     queryKey: ["categories", feedId],
     queryFn: () => api.listCategories(feedId ?? undefined),
+    // Subjects are a feed-level filter; saved lists have their own membership.
+    enabled: !listId,
   });
-  // Switching feeds or filters invalidates the cursor position; the query key
-  // already resets pages, but a stale selection must not survive either.
-  useEffect(() => { setCategory(null); }, [feedId]);
+  // Switching feeds, lists, or filters invalidates the cursor position; the
+  // query key already resets pages, but a stale selection must not survive either.
+  useEffect(() => { setCategory(null); }, [feedId, listId]);
   const articleList = articles.data?.pages.flatMap((page) => page.articles) ?? [];
   const articleFromList = articleList.find((item) => item.id === articleId);
   const deepArticle = useQuery({
@@ -74,6 +87,9 @@ export function App() {
   const article = deepArticle.data ?? null;
   const selectedArticle = article ?? articleFromList ?? null;
   const selectedFeedTitle = (id: string | null) => feeds.data?.find((feed) => feed.id === id)?.title ?? null;
+  const selectedListTitle = (id: string | null) => lists.data?.find((list) => list.id === id)?.title ?? null;
+  const articleHref = (target: Article) =>
+    listId ? listArticlePath(target, listId, selectedListTitle(listId)) : articlePath(target, selectedFeedTitle(target.feedId));
 
   const refresh = useMutation({
     mutationFn: api.refreshFeed,
@@ -104,10 +120,11 @@ export function App() {
   }, [shortcutNotice]);
 
   const selectFeed = (id: string | null) => { navigate(feedPath(id, selectedFeedTitle(id))); setDrawerOpen(false); };
-  const selectArticle = (next: Article) => { setNavDir(null); navigate(articlePath(next, selectedFeedTitle(next.feedId))); setDrawerOpen(false); };
+  const selectList = (id: string | null) => { navigate(id ? listPath(id, selectedListTitle(id)) : "/"); setDrawerOpen(false); };
+  const selectArticle = (next: Article) => { setNavDir(null); navigate(articleHref(next)); setDrawerOpen(false); };
   const goArticle = (target: Article, dir: "prev" | "next") => {
     setNavDir(dir);
-    navigate(articlePath(target, selectedFeedTitle(target.feedId)));
+    navigate(articleHref(target));
     if (!target.readAt) setRead.mutate({ id: target.id, read: true });
   };
   const showReader = isMobile && (article !== null || articleId !== null);
@@ -120,7 +137,14 @@ export function App() {
   useEffect(() => {
     if (!feeds.data) return;
     if (article) {
-      const canonical = articlePath(article, selectedFeedTitle(article.feedId));
+      const canonical = listId
+        ? listArticlePath(article, listId, selectedListTitle(listId))
+        : articlePath(article, selectedFeedTitle(article.feedId));
+      if (location.pathname !== canonical) navigate(canonical, { replace: true });
+      return;
+    }
+    if (listId && !articleId) {
+      const canonical = listPath(listId, selectedListTitle(listId));
       if (location.pathname !== canonical) navigate(canonical, { replace: true });
       return;
     }
@@ -128,7 +152,7 @@ export function App() {
       const canonical = feedPath(feedId, selectedFeedTitle(feedId));
       if (location.pathname !== canonical) navigate(canonical, { replace: true });
     }
-  }, [article, articleId, feedId, feeds.data, location.pathname, navigate]);
+  }, [article, articleId, feedId, listId, feeds.data, lists.data, location.pathname, navigate]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -157,7 +181,7 @@ export function App() {
         const next = list[nextIndex];
         if (next) {
           setNavDir(event.key === "j" ? "next" : "prev");
-          navigate(articlePath(next, selectedFeedTitle(next.feedId)));
+          navigate(articleHref(next));
         }
         return;
       }
@@ -181,7 +205,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
     // refresh.mutate is stable; depending on the mutation object would re-bind the
     // listener every render.
-  }, [articleList, feedId, feeds.data, navigate, refresh.mutate, selectedArticle, shortcutHelp, toggle]);
+  }, [articleList, feedId, listId, feeds.data, lists.data, navigate, refresh.mutate, selectedArticle, shortcutHelp, toggle]);
 
   const loadMore = useCallback(() => {
     if (articles.hasNextPage && !articles.isFetchingNextPage) void articles.fetchNextPage();
@@ -215,7 +239,9 @@ export function App() {
       <div className={`layout${showReader ? " show-reader" : ""}${layout.readerCollapsed ? " reader-collapsed" : ""}`} style={gridStyle}>
         <Sidebar
           selectedFeedId={feedId}
+          selectedListId={listId}
           onSelectFeed={selectFeed}
+          onSelectList={selectList}
           open={!isNarrow || drawerOpen}
           drawer={isNarrow}
           onCloseDrawer={() => setDrawerOpen(false)}
@@ -251,9 +277,10 @@ export function App() {
           nextArticle={nextArticle}
           onNavArticle={goArticle}
           navDir={navDir}
-          onBack={isMobile ? () => navigate(feedPath(selectedArticle?.feedId ?? feedId, selectedFeedTitle(selectedArticle?.feedId ?? feedId))) : undefined}
+          onBack={isMobile ? () => navigate(listId ? listPath(listId, selectedListTitle(listId)) : feedPath(selectedArticle?.feedId ?? feedId, selectedFeedTitle(selectedArticle?.feedId ?? feedId))) : undefined}
           collapsed={layout.readerCollapsed}
           onToggleCollapsed={() => toggle("reader")}
+          onActionError={setShortcutNotice}
         />
       </div>
       {installHelpOpen && (

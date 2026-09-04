@@ -4,10 +4,13 @@ import { api, ApiError, feedPlatform, type DiscoveredFeed } from "./api";
 import { ErrorCallout } from "./ErrorCallout";
 import { FeedPicker } from "./FeedPicker";
 import { IngestorDialog } from "./IngestorDialog";
+import { CreateListDialog } from "./ListDialogs";
 
 export function Sidebar(props: {
   selectedFeedId: string | null;
+  selectedListId: string | null;
   onSelectFeed: (id: string | null) => void;
+  onSelectList: (id: string | null) => void;
   open: boolean;
   drawer: boolean;
   onCloseDrawer: () => void;
@@ -22,11 +25,13 @@ export function Sidebar(props: {
   const [discovered, setDiscovered] = useState<DiscoveredFeed[] | null>(null);
   const [ingestorOpen, setIngestorOpen] = useState(false);
   const [addFeedOpen, setAddFeedOpen] = useState(false);
+  const [createListOpen, setCreateListOpen] = useState(false);
   const addFeedDialogRef = useRef<HTMLDialogElement>(null);
   const addFeedInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds, refetchInterval: 60_000 });
   const ingestors = useQuery({ queryKey: ["ingestors"], queryFn: api.listIngestors });
+  const lists = useQuery({ queryKey: ["lists"], queryFn: api.listLists });
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["feeds"] });
     qc.invalidateQueries({ queryKey: ["articles"] });
@@ -51,6 +56,21 @@ export function Sidebar(props: {
     onSuccess: invalidate,
     onError: () => props.onActionError?.("Could not mark that feed read."),
   });
+  const deleteList = useMutation({
+    mutationFn: api.deleteList,
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["lists"] });
+      if (props.selectedListId === id) props.onSelectList(null);
+    },
+    onError: () => props.onActionError?.("Could not delete that list."),
+  });
+  const copyListFeedUrl = (token: string) => {
+    const url = `${window.location.origin}/lists/${token}.xml`;
+    navigator.clipboard.writeText(url).then(
+      () => props.onActionError?.("RSS link copied."),
+      () => props.onActionError?.(url),
+    );
+  };
 
   const total = (feeds.data ?? []).reduce((n, f) => n + f.unreadCount, 0);
   const ingestorByFeed = new Map((ingestors.data ?? []).map((i) => [i.feedId, i]));
@@ -103,6 +123,7 @@ export function Sidebar(props: {
             + Add feed
           </button>
           <button className="sidebar-action" type="button" onClick={() => setIngestorOpen(true)}>+ Ingestor</button>
+          <button className="sidebar-action" type="button" onClick={() => setCreateListOpen(true)}>+ List</button>
         </div>
         <ul>
           <li className={props.selectedFeedId === null ? "selected" : ""}>
@@ -134,6 +155,32 @@ export function Sidebar(props: {
             </li>
           ))}
         </ul>
+        {(lists.data ?? []).length > 0 && (
+          <>
+            <div className="panel-head">
+              <h2>Lists</h2>
+            </div>
+            <ul>
+              {(lists.data ?? []).map((list) => (
+                <li key={list.id} className={props.selectedListId === list.id ? "selected" : ""}>
+                  <button onClick={() => props.onSelectList(list.id)}>
+                    <span className="feed-title">
+                      {list.visibility === "public" && <span className="platform-badge">public</span>}
+                      {list.title}
+                    </span>
+                    <span className="count">{list.itemCount}</span>
+                  </button>
+                  <span className="row-actions">
+                    {list.visibility === "public" && (
+                      <button title="Copy RSS link" aria-label={`Copy RSS link for ${list.title}`} onClick={() => copyListFeedUrl(list.token)}>⧉</button>
+                    )}
+                    <button title="Delete list" aria-label={`Delete list ${list.title}`} onClick={() => { if (confirm(`Delete list ${list.title}? Articles stay in their feeds.`)) deleteList.mutate(list.id); }}>×</button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </nav>
       <dialog
         ref={addFeedDialogRef}
@@ -181,6 +228,7 @@ export function Sidebar(props: {
       </dialog>
       {props.drawer && props.open && <div className="backdrop" onClick={props.onCloseDrawer} />}
       {ingestorOpen && <IngestorDialog onClose={() => setIngestorOpen(false)} />}
+      <CreateListDialog open={createListOpen} onClose={() => setCreateListOpen(false)} onActionError={props.onActionError} />
       {discovered && (
         <FeedPicker
           feeds={discovered}

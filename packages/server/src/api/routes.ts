@@ -5,7 +5,8 @@ import { discoverFeeds } from "../discovery/discover.js";
 
 interface SubscribeBody { url?: string }
 interface ReadBody { read?: boolean }
-interface ArticleQuery { feed_id?: string; unread?: string; category?: string; before?: string; before_id?: string; limit?: string; content?: string }
+interface SnoozeBody { until?: string | null }
+interface ArticleQuery { feed_id?: string; list_id?: string; unread?: string; category?: string; before?: string; before_id?: string; limit?: string; content?: string; snoozed?: string }
 
 export function registerRoutes(app: FastifyInstance, storage: Storage, poller: Poller): void {
   const userId = () => storage.getOrCreateLocalUser().id;
@@ -113,7 +114,9 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     const articles = storage.listArticles({
       userId: userId(),
       ...(req.query.feed_id ? { feedId: req.query.feed_id } : {}),
+      ...(req.query.list_id ? { listId: req.query.list_id } : {}),
       unreadOnly: req.query.unread === "1",
+      includeSnoozed: req.query.snoozed === "1",
       ...(req.query.category ? { category: req.query.category } : {}),
       ...(req.query.before ? { before: req.query.before } : {}),
       ...(req.query.before_id ? { beforeId: req.query.before_id } : {}),
@@ -141,6 +144,24 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
 
   app.post<{ Params: { id: string }; Body: ReadBody }>("/api/v1/articles/:id/read", async (req, reply) => {
     storage.setRead(userId(), req.params.id, req.body?.read !== false);
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { id: string }; Body: SnoozeBody }>("/api/v1/articles/:id/snooze", async (req, reply) => {
+    const uid = userId();
+    if (!storage.getArticle(uid, req.params.id)) {
+      return reply.code(404).send({ error: { code: "not_found", message: "article not found" } });
+    }
+    const raw = req.body?.until;
+    if (raw === null || raw === undefined) {
+      storage.setSnooze(uid, req.params.id, null);
+      return reply.code(204).send();
+    }
+    const until = new Date(raw);
+    if (Number.isNaN(until.getTime())) {
+      return reply.code(400).send({ error: { code: "invalid_until", message: "until must be an ISO date or null" } });
+    }
+    storage.setSnooze(uid, req.params.id, until);
     return reply.code(204).send();
   });
 
