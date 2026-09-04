@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Article, type SavedList } from "./api";
 import { safeUrl } from "./urls";
@@ -21,6 +21,8 @@ export function ArticleView(props: {
   navDir?: NavDir;
   onBack?: (() => void) | undefined;
   loading?: boolean;
+  /** True while the full-article fetch (which carries contentHtml) is in flight. */
+  contentLoading?: boolean | undefined;
   requested?: boolean;
   error?: boolean;
   collapsed: boolean;
@@ -175,7 +177,7 @@ export function ArticleView(props: {
             <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="reader-panel">Collapse reader</button>
           </div>
           <ArticleActions a={a} onActionError={props.onActionError} />
-          <ReaderBody a={a} view={view} setView={setView} showTabs={Boolean(safeUrl(a.url))} />
+          <ReaderBody a={a} view={view} setView={setView} showTabs={Boolean(safeUrl(a.url))} contentLoading={props.contentLoading} />
           {showNav && (
             <nav className="article-nav" aria-label="Article navigation">
               {props.prevArticle ? (
@@ -246,6 +248,7 @@ function ReaderBody(props: {
   view: "reader" | "embedded";
   setView: (v: "reader" | "embedded") => void;
   showTabs: boolean;
+  contentLoading?: boolean | undefined;
 }) {
   const a = props.a;
   const href = safeUrl(a.url);
@@ -254,6 +257,12 @@ function ReaderBody(props: {
   // its own lane so raw feed bytes can never reach dangerouslySetInnerHTML.
   const htmlBody = a.contentHtml?.trim() || null;
   const textBody = htmlBody ? null : a.summary?.trim() || null;
+  // The list row carries only a stub; until the full record (with contentHtml)
+  // arrives there is nothing accurate to show yet — never render the "no
+  // content" fallback for an article whose body is still in flight.
+  if (props.contentLoading && !htmlBody && props.view !== "embedded") {
+    return <ArticleLoading hasSource={Boolean(href)} />;
+  }
   return (
     <>
       {props.showTabs && (
@@ -445,6 +454,39 @@ function ListChips(props: { a: Article; onActionError?: ((message: string) => vo
       )}
       <button type="button" className="cat-chip" onClick={props.onOpenDialog}>All lists…</button>
     </span>
+  );
+}
+
+// Staged loading indicator for article content. Stage one (immediate) is a
+// shimmering text block, so a fast fetch still gets a calm beat of motion.
+// Stage two (from 600ms) fades in the orbit — three arms revolving at
+// different speeds around a pulsing core. Stage three (from 4s) surfaces a
+// "still fetching" hint. Short loads unmount before the later stages ever
+// appear; long ones get progressively more life. All decorative layers are
+// aria-hidden; role="status" carries the announcement.
+function ArticleLoading({ hasSource }: { hasSource: boolean }) {
+  const arms = [
+    { "--a": "0deg", "--dur": "2.2s" },
+    { "--a": "120deg", "--dur": "3.1s" },
+    { "--a": "240deg", "--dur": "4.4s" },
+  ] as unknown as CSSProperties[];
+  return (
+    <div className="article-loading" role="status" aria-label="Loading article content">
+      <div className="loading-orbit" aria-hidden="true">
+        <span className="orbit-ring" />
+        <span className="orbit-core" />
+        {arms.map((style, i) => (
+          <span key={i} className="orbit-arm" style={style}><i className="orbit-dot" /></span>
+        ))}
+      </div>
+      <div className="loading-lines" aria-hidden="true">
+        <span /><span /><span /><span /><span /><span /><span />
+      </div>
+      <p className="loading-hint">
+        <span>{hasSource ? "Fetching the full article…" : "Fetching article…"}</span>
+        <span className="loading-hint-slow">Still fetching — hang tight.</span>
+      </p>
+    </div>
   );
 }
 

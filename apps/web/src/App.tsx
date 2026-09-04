@@ -334,6 +334,7 @@ export function App() {
         <ArticleView
           article={selectedArticle}
           loading={Boolean(articleId && (articles.isLoading || deepArticle.isLoading) && !selectedArticle)}
+          contentLoading={Boolean(articleId && deepArticle.isPending)}
           requested={articleId !== null}
           error={deepArticle.isError && !selectedArticle}
           prevArticle={prevArticle}
