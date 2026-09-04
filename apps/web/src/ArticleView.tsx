@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Article } from "./api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type Article, type SavedList } from "./api";
 import { safeUrl } from "./urls";
 import { SaveToListDialog } from "./ListDialogs";
+import { useListShortcuts } from "./listShortcuts";
 
 const SWIPE_OPEN_PX = 12;
 const SWIPE_COMMIT_PX = 64;
@@ -299,14 +300,16 @@ function ReaderBody(props: {
   );
 }
 
-function snoozePresets(now: Date): { label: string; until: Date }[] {
+export interface SnoozePreset { label: string; key: string; until: Date }
+
+export function snoozePresets(now: Date): SnoozePreset[] {
   const later = new Date(now.getTime() + 3 * 3_600_000);
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
   const nextWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 9, 0, 0);
   return [
-    { label: "Later today", until: later },
-    { label: "Tomorrow", until: tomorrow },
-    { label: "Next week", until: nextWeek },
+    { label: "Later today", key: "s", until: later },
+    { label: "Tomorrow", key: "t", until: tomorrow },
+    { label: "Next week", key: "w", until: nextWeek },
   ];
 }
 
@@ -348,7 +351,7 @@ function ArticleActions({ a, onActionError }: { a: Article; onActionError?: ((me
                 role="menuitem"
                 disabled={snooze.isPending}
                 onClick={() => snooze.mutate(preset.until.toISOString())}
-              >{preset.label}</button>
+              >{preset.label}<kbd>{preset.key}</kbd></button>
             ))}
             {a.snoozedUntil && (
               <button
@@ -356,14 +359,92 @@ function ArticleActions({ a, onActionError }: { a: Article; onActionError?: ((me
                 role="menuitem"
                 disabled={snooze.isPending}
                 onClick={() => snooze.mutate(null)}
-              >Unsnooze</button>
+              >Unsnooze<kbd>u</kbd></button>
             )}
           </span>
         )}
       </span>
-      <button type="button" onClick={() => setSaveOpen(true)}>Save to list</button>
+      <ListChips a={a} onActionError={onActionError} onOpenDialog={() => setSaveOpen(true)} />
       {saveOpen && <SaveToListDialog article={a} onClose={() => setSaveOpen(false)} onActionError={onActionError} />}
     </div>
+  );
+}
+
+const VISIBLE_LIST_CHIPS = 3;
+
+// List membership as toggle chips, mirroring the subject filter chips. The
+// first few lists stay on screen for one-click saves; the rest fold into a
+// dropdown instead of a side-scrolling strip.
+function ListChips(props: { a: Article; onActionError?: ((message: string) => void) | undefined; onOpenDialog: () => void }) {
+  const { a } = props;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const qc = useQueryClient();
+  const lists = useQuery({ queryKey: ["lists"], queryFn: api.listLists });
+  // The full record carries listIds; list rows do not.
+  const detail = useQuery({ queryKey: ["article", a.id], queryFn: () => api.getArticle(a.id) });
+  const shortcuts = useListShortcuts();
+  useEffect(() => setMoreOpen(false), [a.id]);
+  const memberOf = new Set(detail.data?.listIds ?? a.listIds ?? []);
+  const toggle = useMutation({
+    mutationFn: ({ listId, save }: { listId: string; save: boolean }) =>
+      save ? api.addToList(listId, a.id) : api.removeFromList(listId, a.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lists"] });
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      qc.invalidateQueries({ queryKey: ["article", a.id] });
+    },
+    onError: () => props.onActionError?.("Could not update that list."),
+  });
+  const all = lists.data ?? [];
+  if (all.length === 0) {
+    return <button type="button" onClick={props.onOpenDialog}>Save to list</button>;
+  }
+  const visible = all.slice(0, VISIBLE_LIST_CHIPS);
+  const extra = all.slice(VISIBLE_LIST_CHIPS);
+  const chipKey = (list: SavedList) =>
+    shortcuts[list.id] ? <kbd className="chip-key">{shortcuts[list.id]}</kbd> : null;
+  return (
+    <span className="list-chips" role="group" aria-label="Save to list">
+      {visible.map((list) => (
+        <button
+          key={list.id}
+          type="button"
+          className={`cat-chip${memberOf.has(list.id) ? " selected" : ""}`}
+          aria-pressed={memberOf.has(list.id)}
+          disabled={toggle.isPending}
+          onClick={() => toggle.mutate({ listId: list.id, save: !memberOf.has(list.id) })}
+        >
+          {list.title}{chipKey(list)}
+        </button>
+      ))}
+      {extra.length > 0 && (
+        <span className="snooze-wrap">
+          <button
+            type="button"
+            className="cat-chip"
+            aria-expanded={moreOpen}
+            aria-haspopup="menu"
+            onClick={() => setMoreOpen((open) => !open)}
+          >More lists ▾</button>
+          {moreOpen && (
+            <span className="snooze-menu" role="menu">
+              {extra.map((list) => (
+                <button
+                  key={list.id}
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={memberOf.has(list.id)}
+                  className={memberOf.has(list.id) ? "selected" : undefined}
+                  disabled={toggle.isPending}
+                  onClick={() => toggle.mutate({ listId: list.id, save: !memberOf.has(list.id) })}
+                >{list.title}{chipKey(list)}</button>
+              ))}
+            </span>
+          )}
+        </span>
+      )}
+      <button type="button" className="cat-chip" onClick={props.onOpenDialog}>All lists…</button>
+    </span>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Article } from "./api";
+import { setListShortcut, useListShortcuts } from "./listShortcuts";
 
 function useDialog(open: boolean) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -86,6 +87,7 @@ export function SaveToListDialog(props: { article: Article; onClose: () => void;
   const ref = useDialog(true);
   const qc = useQueryClient();
   const lists = useQuery({ queryKey: ["lists"], queryFn: api.listLists });
+  const shortcuts = useListShortcuts();
   // The full record carries listIds; list rows do not.
   const detail = useQuery({ queryKey: ["article", props.article.id], queryFn: () => api.getArticle(props.article.id) });
   const memberOf = new Set(detail.data?.listIds ?? props.article.listIds ?? []);
@@ -126,6 +128,20 @@ export function SaveToListDialog(props: { article: Article; onClose: () => void;
                   {list.title}
                   {list.visibility === "public" && <span className="platform-badge">public</span>}
                 </label>
+                <input
+                  className="list-key-input"
+                  type="text"
+                  value={shortcuts[list.id] ?? ""}
+                  maxLength={1}
+                  placeholder="key"
+                  title="Keyboard shortcut: save the current article to this list"
+                  aria-label={`Keyboard shortcut for ${list.title}`}
+                  onChange={(event) => {
+                    const key = event.target.value.slice(-1);
+                    const error = setListShortcut(list.id, key || null);
+                    if (error) props.onActionError?.(error);
+                  }}
+                />
               </li>
             ))}
           </ul>

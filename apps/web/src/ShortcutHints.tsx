@@ -1,7 +1,9 @@
 const shortcuts = [
-  ["j / k", "next / previous article"],
+  ["j / k", "next / previous article (marks it read)"],
   ["r", "refresh selected feed"],
   ["o", "open original"],
+  ["s / t / w", "snooze: later today / tomorrow / next week"],
+  ["u", "unsnooze"],
   ["[ / ]", "collapse feeds / articles"],
   ["?", "show all shortcuts"],
   ["Esc", "close shortcut help"],
@@ -11,6 +13,8 @@ export function ShortcutHints(props: {
   open: boolean;
   notice: string | null;
   onToggle: () => void;
+  /** User-bound list shortcuts as [key, label] pairs. */
+  listShortcuts?: [string, string][];
 }) {
   return (
     <>
@@ -32,7 +36,11 @@ export function ShortcutHints(props: {
             {shortcuts.map(([key, label]) => (
               <div key={key}><dt><kbd>{key}</kbd></dt><dd>{label}</dd></div>
             ))}
+            {(props.listShortcuts ?? []).map(([key, label]) => (
+              <div key={`list-${key}`}><dt><kbd>{key}</kbd></dt><dd>{label}</dd></div>
+            ))}
           </dl>
+          <p className="shortcut-note">Bind keys to lists in the article's “All lists…” dialog.</p>
         </aside>
       )}
       {props.notice && <div className="shortcut-notice" role="status" aria-live="polite">{props.notice}</div>}

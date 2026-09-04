@@ -4,9 +4,10 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { api, ApiError, type Article } from "./api";
 import { Sidebar } from "./Sidebar";
 import { ArticleList } from "./ArticleList";
-import { ArticleView } from "./ArticleView";
+import { ArticleView, snoozePresets } from "./ArticleView";
 import { ColumnResizer } from "./ColumnResizer";
 import { ShortcutHints } from "./ShortcutHints";
+import { listIdForKey, useListShortcuts } from "./listShortcuts";
 import { useTheme, toggleTheme } from "./theme";
 import { isStandalone, promptInstall } from "./installPrompt";
 import { useMediaQuery } from "./useMediaQuery";
@@ -113,6 +114,31 @@ export function App() {
     onError: () => setShortcutNotice("Could not update read state."),
   });
 
+  const snooze = useMutation({
+    mutationFn: ({ id, until }: { id: string; until: string | null }) => api.setSnooze(id, until),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      qc.invalidateQueries({ queryKey: ["feeds"] });
+      qc.invalidateQueries({ queryKey: ["article", vars.id] });
+      setShortcutNotice(vars.until ? `Snoozed until ${new Date(vars.until).toLocaleString()}.` : "Snooze removed.");
+    },
+    onError: () => setShortcutNotice("Could not snooze that article."),
+  });
+
+  const listShortcuts = useListShortcuts();
+  const saveToList = useMutation({
+    mutationFn: ({ listId, articleId, save }: { listId: string; articleId: string; save: boolean }) =>
+      save ? api.addToList(listId, articleId) : api.removeFromList(listId, articleId),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["lists"] });
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      qc.invalidateQueries({ queryKey: ["article", vars.articleId] });
+      const title = selectedListTitle(vars.listId) ?? "list";
+      setShortcutNotice(vars.save ? `Saved to “${title}”.` : `Removed from “${title}”.`);
+    },
+    onError: () => setShortcutNotice("Could not update that list."),
+  });
+
   useEffect(() => {
     if (!shortcutNotice) return;
     const timer = window.setTimeout(() => setShortcutNotice(null), 5000);
@@ -182,7 +208,32 @@ export function App() {
         if (next) {
           setNavDir(event.key === "j" ? "next" : "prev");
           navigate(articleHref(next));
+          // Browsing with j/k reads like clicking: the article you land on is read.
+          if (!next.readAt) setRead.mutate({ id: next.id, read: true });
         }
+        return;
+      }
+      if (event.key === "s" || event.key === "t" || event.key === "w") {
+        event.preventDefault();
+        if (!selectedArticle) {
+          setShortcutNotice("Select an article before snoozing.");
+          return;
+        }
+        const preset = snoozePresets(new Date()).find((p) => p.key === event.key);
+        if (preset) snooze.mutate({ id: selectedArticle.id, until: preset.until.toISOString() });
+        return;
+      }
+      if (event.key === "u") {
+        event.preventDefault();
+        if (!selectedArticle) {
+          setShortcutNotice("Select an article before unsnoozing.");
+          return;
+        }
+        if (!selectedArticle.snoozedUntil) {
+          setShortcutNotice("This article is not snoozed.");
+          return;
+        }
+        snooze.mutate({ id: selectedArticle.id, until: null });
         return;
       }
       if (event.key === "r") {
@@ -200,12 +251,24 @@ export function App() {
       }
       if (event.key === "[") toggle("sidebar");
       if (event.key === "]") toggle("list");
+      // User-configured list shortcuts: one key saves (or unsaves) the
+      // current article to a specific list.
+      const shortcutListId = event.key.length === 1 ? listIdForKey(event.key) : null;
+      if (shortcutListId) {
+        event.preventDefault();
+        if (!selectedArticle) {
+          setShortcutNotice("Select an article before saving to a list.");
+          return;
+        }
+        const member = selectedArticle.listIds?.includes(shortcutListId) ?? false;
+        saveToList.mutate({ listId: shortcutListId, articleId: selectedArticle.id, save: !member });
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // refresh.mutate is stable; depending on the mutation object would re-bind the
     // listener every render.
-  }, [articleList, feedId, listId, feeds.data, lists.data, navigate, refresh.mutate, selectedArticle, shortcutHelp, toggle]);
+  }, [articleList, feedId, listId, feeds.data, lists.data, listShortcuts, navigate, refresh.mutate, snooze.mutate, saveToList.mutate, setRead.mutate, selectedArticle, shortcutHelp, toggle]);
 
   const loadMore = useCallback(() => {
     if (articles.hasNextPage && !articles.isFetchingNextPage) void articles.fetchNextPage();
@@ -297,7 +360,12 @@ export function App() {
           </div>
         </div>
       )}
-      <ShortcutHints open={shortcutHelp} notice={shortcutNotice} onToggle={() => setShortcutHelp((open) => !open)} />
+      <ShortcutHints
+        open={shortcutHelp}
+        notice={shortcutNotice}
+        onToggle={() => setShortcutHelp((open) => !open)}
+        listShortcuts={Object.entries(listShortcuts).map(([id, key]) => [key, `save to “${selectedListTitle(id) ?? "list"}”`])}
+      />
     </div>
   );
 }
