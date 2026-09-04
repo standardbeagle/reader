@@ -5,3 +5,5 @@ dist/
 apps/desktop/out/
 *.tsbuildinfo
 .agnt/
+
+site/.astro/
