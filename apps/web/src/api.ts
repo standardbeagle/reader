@@ -28,7 +28,7 @@ export interface FeedRefreshResult {
 }
 
 export interface Ingestor {
-  id: string; kind: "mastodon" | "bluesky" | "reddit"; config: Record<string, unknown>;
+  id: string; kind: "mastodon" | "bluesky" | "reddit" | "composite"; config: Record<string, unknown>;
   feedId: string; feedTitle: string | null; fetchIntervalMin: number;
   digestMode: "realtime" | "hourly" | "daily"; filterThreshold: number;
   llmEnabled: boolean; status: "ok" | "broken"; pendingCount: number;
@@ -38,9 +38,9 @@ export interface IngestorTestResult {
   dropped: { title: string; score: number; reason: string }[];
 }
 
-export function feedPlatform(url: string): "mastodon" | "bluesky" | "reddit" | null {
-  const m = /^ingestor:\/\/(mastodon|bluesky|reddit)\//.exec(url);
-  return (m?.[1] as "mastodon" | "bluesky" | "reddit" | undefined) ?? null;
+export function feedPlatform(url: string): "mastodon" | "bluesky" | "reddit" | "composite" | null {
+  const m = /^ingestor:\/\/(mastodon|bluesky|reddit|composite)\//.exec(url);
+  return (m?.[1] as "mastodon" | "bluesky" | "reddit" | "composite" | undefined) ?? null;
 }
 
 export class ApiError extends Error {
