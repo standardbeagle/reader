@@ -1,0 +1,14 @@
+// Secrets this project needs. `devkey need` reports what is missing and the
+// exact command to fix it. Values live in the machine's system keyring.
+//
+//   devkey need                  what is missing right now
+//   devkey approve cloudflare    grant the token to this shell (needs a TTY)
+//
+// cloudflare provisions the reader.sbdev.io tunnel and its DNS record, and is
+// used ONLY from a workstation. beagle-ab holds the per-tunnel credential JSON
+// instead, which authorizes running that one tunnel and nothing else. See the
+// dev-fleet beagle-ab-hosting skill.
+//
+// OPENROUTER_API_KEY is deliberately absent: the server reads it at runtime
+// from ~/.config/reader/env on the host, not from a deploy-time environment.
+needs "cloudflare"

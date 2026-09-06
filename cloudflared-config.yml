@@ -1,0 +1,23 @@
+# Ingress for the `reader` Cloudflare tunnel on beagle-ab.
+#
+# This file holds no secret and belongs in the repo — the per-tunnel credential
+# lives outside every working tree at the path below, mode 0600. See the
+# dev-fleet `beagle-ab-hosting` skill.
+#
+# reader.sbdev.io is `public` posture. reader has no authn of its own (the M4
+# multi-user work is still open), so Cloudflare Access in front of the hostname
+# is the authorization control, not a convenience.
+tunnel: 47bdd88b-5843-4770-abe4-46ab15100f81
+credentials-file: /home/beagle/.config/cloudflared/reader.json
+
+# The origin binds 127.0.0.1 and is unreachable from the LAN. cloudflared dials
+# out to Cloudflare; nothing dials in.
+ingress:
+  - hostname: reader.sbdev.io
+    service: http://127.0.0.1:3737
+    originRequest:
+      connectTimeout: 10s
+      tlsTimeout: 10s
+      keepAliveTimeout: 90s
+      keepAliveConnections: 16
+  - service: http_status:404
