@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useMemo, useRef, type UIEvent as ReactUIEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type UIEvent as ReactUIEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Article, type CategoryCount } from "./api";
+import { safeUrl } from "./urls";
 import { useMediaQuery } from "./useMediaQuery";
 
 function dayKeyOf(iso: string | null): string | null {
@@ -69,11 +70,19 @@ export function ArticleList(props: {
   });
   const isMobile = useMediaQuery("(max-width: 699px)");
   const groups = useMemo(() => groupByDay(props.articles, new Date()), [props.articles]);
+  const [view, setView] = useState<"list" | "board">(
+    () => (localStorage.getItem("reader.articleView") === "board" ? "board" : "list"),
+  );
+  const toggleView = () => {
+    const next = view === "list" ? "board" : "list";
+    setView(next);
+    localStorage.setItem("reader.articleView", next);
+  };
 
   // Infinite scroll: a sentinel row at the end of the list triggers the next
   // page fetch before the user reaches the bottom; a button covers keyboard
   // and reduced-motion cases where the observer may not fire.
-  const sentinelRef = useRef<HTMLLIElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !props.hasMore) return;
@@ -112,16 +121,44 @@ export function ArticleList(props: {
       key={a.id}
       className={`${a.readAt ? "read" : "unread"} ${props.selectedId === a.id ? "selected" : ""}`}
     >
-      <button
-        onClick={() => {
-          props.onSelect(a);
-          if (!a.readAt) setRead.mutate({ id: a.id, read: true });
-        }}
-      >
+      <button onClick={() => openArticle(a)}>
         <span className="t">{a.title}</span>
       </button>
       <span className="date">{a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : ""}</span>
     </li>
+  );
+
+  const openArticle = (a: Article) => {
+    props.onSelect(a);
+    if (!a.readAt) setRead.mutate({ id: a.id, read: true });
+  };
+
+  const renderCard = (a: Article) => {
+    const hero = safeUrl(a.imageUrl ?? null);
+    return (
+      <button
+        key={a.id}
+        className={`pin-card ${a.readAt ? "read" : "unread"} ${props.selectedId === a.id ? "selected" : ""}`}
+        onClick={() => openArticle(a)}
+      >
+        {hero ? (
+          <img className="pin-hero" src={hero} alt="" loading="lazy" decoding="async" />
+        ) : (
+          <span className="pin-hero pin-fallback" aria-hidden="true">{a.title.charAt(0).toUpperCase()}</span>
+        )}
+        <span className="pin-title">{a.title}</span>
+        <span className="pin-date">{a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : ""}</span>
+      </button>
+    );
+  };
+
+  const loadMoreUi = props.hasMore && (
+    <>
+      <div ref={sentinelRef} className="load-sentinel" aria-hidden="true" />
+      <button className="load-more-btn" onClick={props.onLoadMore} disabled={props.loadingMore}>
+        {props.loadingMore ? "Loading…" : "Load more"}
+      </button>
+    </>
   );
 
   const body = props.loading ? (
@@ -130,6 +167,11 @@ export function ArticleList(props: {
     </div>
   ) : props.articles.length === 0 ? (
     <div className="empty">{props.selectedCategory ? "Nothing filed under this subject." : "No articles."}</div>
+  ) : view === "board" ? (
+    <>
+      <div className="pinboard">{props.articles.map(renderCard)}</div>
+      {loadMoreUi}
+    </>
   ) : (
     <>
       <ul>
@@ -139,15 +181,8 @@ export function ArticleList(props: {
             {group.items.map(renderRow)}
           </Fragment>
         ))}
-        {props.hasMore && (
-          <li ref={sentinelRef} className="load-sentinel" aria-hidden="true" />
-        )}
       </ul>
-      {props.hasMore && (
-        <button className="load-more-btn" onClick={props.onLoadMore} disabled={props.loadingMore}>
-          {props.loadingMore ? "Loading…" : "Load more"}
-        </button>
-      )}
+      {loadMoreUi}
     </>
   );
 
@@ -162,7 +197,17 @@ export function ArticleList(props: {
     >
       <div className="panel-head">
         <h2>Articles</h2>
-        <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
+        <div className="head-actions">
+          <button
+            className="view-toggle"
+            onClick={toggleView}
+            aria-pressed={view === "board"}
+            title={view === "board" ? "Switch to list view" : "Switch to pinboard view"}
+          >
+            {view === "board" ? "☰" : "▦"}
+          </button>
+          <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="article-list-panel">Collapse</button>
+        </div>
       </div>
       <FilterChips {...props} />
       {body}
