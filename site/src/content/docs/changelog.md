@@ -3,6 +3,15 @@ title: Changelog
 description: Notable changes to reader, newest first.
 ---
 
+## Unreleased
+
+- **Unread neighbor indicators** — subtle dots at the reader's left/right edge
+  and on the bottom navigation links show when the previous/next article is
+  unread.
+- **Unread-only navigation** — the **‹•›** header toggle makes prev/next
+  (buttons, swipe, and `j`/`k`) jump between unread articles only; the choice
+  persists across sessions.
+
 ## v0.2.0 — 2026-08
 
 Snooze, saved lists, ingestors, and the production deployment.

@@ -26,6 +26,7 @@ input:focus { outline: none; border-color: var(--accent); }
 .header .brand { font-weight: 700; letter-spacing: 0.02em; font-size: var(--fs-md); margin: 0; }
 .header .spacer { flex: 1; }
 .icon-btn { width: 28px; height: 28px; display: grid; place-items: center; color: var(--text-dim); }
+.icon-btn[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-bg); border-radius: var(--radius); }
 .hamburger { display: none; }
 
 .layout { display: grid; grid-template-columns: 240px 360px 1fr; min-height: 0; }
@@ -117,6 +118,19 @@ input:focus { outline: none; border-color: var(--accent); }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
 .reader { position: relative; overflow-y: auto; touch-action: pan-y; overscroll-behavior-x: contain; }
+/* Unread edge dots: sticky inside the scrolling reader so they hover at the
+   vertical midpoint while the article scrolls beneath. Non-interactive. */
+.edge-indicators { position: sticky; top: 50%; height: 0; z-index: 2; pointer-events: none; }
+.edge-dot {
+  position: absolute; top: 0; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); opacity: 0.55; transform: translateY(-50%);
+}
+.edge-dot-prev { left: 6px; }
+.edge-dot-next { right: 6px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 .reader-stage { position: relative; padding: var(--space-4) var(--space-6); }
 .reader .article { max-width: 68ch; animation: article-in var(--dur-slow) var(--ease); }
 /* Directional push (prev/next/swipe): children slide horizontally at
@@ -269,6 +283,10 @@ input:focus { outline: none; border-color: var(--accent); }
 .nav-link .nav-dir {
   display: block; font-size: var(--fs-2xs); font-weight: 700; color: var(--text-dim);
   letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 2px;
+}
+.nav-unread-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); margin-left: 6px; vertical-align: 1px;
 }
 .nav-link .nav-title {
   display: block; font-size: var(--fs-sm); font-weight: 600; line-height: 1.35;

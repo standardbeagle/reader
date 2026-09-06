@@ -158,6 +158,16 @@ export function ArticleView(props: {
       onPointerUp={(event) => endDrag(event, false)}
       onPointerCancel={(event) => endDrag(event, true)}
     >
+      {(props.prevArticle || props.nextArticle) && (
+        <div className="edge-indicators">
+          {props.prevArticle && !props.prevArticle.readAt && (
+            <span className="edge-dot edge-dot-prev"><span className="sr-only">Previous article is unread</span></span>
+          )}
+          {props.nextArticle && !props.nextArticle.readAt && (
+            <span className="edge-dot edge-dot-next"><span className="sr-only">Next article is unread</span></span>
+          )}
+        </div>
+      )}
       <div className="reader-stage">
         {leaving && (
           <div key={`out-${leaving.a.id}`} className={`article article-leaving${leaving.dir ? ` leave-${leaving.dir}` : ""}`} aria-hidden="true">
@@ -184,7 +194,7 @@ export function ArticleView(props: {
                 <button className="nav-link nav-prev" onClick={() => props.onNavArticle!(props.prevArticle!, "prev")}>
                   <span className="nav-arrow" aria-hidden="true">←</span>
                   <span className="nav-target">
-                    <span className="nav-dir">Previous</span>
+                    <span className="nav-dir">Previous{!props.prevArticle.readAt && <UnreadDot />}</span>
                     <span className="nav-title">{props.prevArticle.title}</span>
                   </span>
                 </button>
@@ -192,7 +202,7 @@ export function ArticleView(props: {
               {props.nextArticle ? (
                 <button className="nav-link nav-next" onClick={() => props.onNavArticle!(props.nextArticle!, "next")}>
                   <span className="nav-target">
-                    <span className="nav-dir">Next</span>
+                    <span className="nav-dir">Next{!props.nextArticle.readAt && <UnreadDot />}</span>
                     <span className="nav-title">{props.nextArticle.title}</span>
                   </span>
                   <span className="nav-arrow" aria-hidden="true">→</span>
@@ -206,8 +216,11 @@ export function ArticleView(props: {
   );
 }
 
-function Heading({ a }: { a: Article }) {
-  const href = safeUrl(a.url);
+function UnreadDot() {
+  return <span className="nav-unread-dot" aria-hidden="true" />;
+}
+
+function Heading({ a }: { a: Article }) {  const href = safeUrl(a.url);
   return <h2>{href ? <a href={href} target="_blank" rel="noopener noreferrer">{a.title}</a> : a.title}</h2>;
 }
 

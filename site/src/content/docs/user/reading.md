@@ -27,6 +27,9 @@ filter. Chips are per-feed — saved lists have their own membership instead.
   page in a sandboxed iframe when the feed only supplied a summary.
 - Previous / next article links at the bottom, plus left/right swipe on touch
   devices with a directional push transition.
+- A small dot at the left or right edge (and on the bottom navigation links)
+  marks an unread neighbor. The **‹•›** header toggle restricts prev/next
+  navigation — buttons, swipe, and `j`/`k` — to unread articles only.
 - The article title links to the original URL in a new tab.
 
 ## Mobile

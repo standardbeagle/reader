@@ -13,6 +13,7 @@ import { isStandalone, promptInstall } from "./installPrompt";
 import { useMediaQuery } from "./useMediaQuery";
 import { useColumnLayout } from "./useColumnLayout";
 import { idFromRouteKey, routeKey, safeUrl } from "./urls";
+import { navNeighbor } from "./articleNav";
 
 function feedPath(feedId: string | null, feedTitle?: string | null): string {
   return feedId ? `/feeds/${routeKey(feedTitle ?? "feed", feedId)}` : "/";
@@ -43,6 +44,12 @@ export function App() {
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
   const [shortcutHelp, setShortcutHelp] = useState(false);
   const [shortcutNotice, setShortcutNotice] = useState<string | null>(null);
+  // Unread-only navigation: prev/next (buttons, swipe, j/k) skip read articles.
+  const [unreadNav, setUnreadNav] = useState(() => localStorage.getItem("reader.unreadNav") === "1");
+  const toggleUnreadNav = () => setUnreadNav((on) => {
+    localStorage.setItem("reader.unreadNav", on ? "0" : "1");
+    return !on;
+  });
   const theme = useTheme();
   const isNarrow = useMediaQuery("(max-width: 1099px)");
   const isMobile = useMediaQuery("(max-width: 699px)");
@@ -157,8 +164,15 @@ export function App() {
 
   const list = articleList;
   const currentIndex = selectedArticle ? list.findIndex((item) => item.id === selectedArticle.id) : -1;
-  const prevArticle = currentIndex > 0 ? list[currentIndex - 1] ?? null : null;
-  const nextArticle = currentIndex >= 0 && currentIndex < list.length - 1 ? list[currentIndex + 1] ?? null : null;
+  const prevArticle = navNeighbor(list, currentIndex, "prev", unreadNav);
+  const nextArticle = navNeighbor(list, currentIndex, "next", unreadNav);
+
+  // Unread-only nav can run dry inside the loaded pages while more unread
+  // articles sit on the server; pull the next page so the trail continues.
+  useEffect(() => {
+    if (!unreadNav || currentIndex < 0 || nextArticle) return;
+    if (articles.hasNextPage && !articles.isFetchingNextPage) void articles.fetchNextPage();
+  }, [unreadNav, currentIndex, nextArticle, articles.hasNextPage, articles.isFetchingNextPage, articles.fetchNextPage]);
 
   useEffect(() => {
     if (!feeds.data) return;
@@ -200,13 +214,11 @@ export function App() {
       const list = articleList;
       if (event.key === "j" || event.key === "k") {
         event.preventDefault();
+        const dir = event.key === "j" ? "next" : "prev";
         const current = selectedArticle ? list.findIndex((item) => item.id === selectedArticle.id) : -1;
-        const nextIndex = event.key === "j"
-          ? Math.min(list.length - 1, current + 1)
-          : Math.max(0, current < 0 ? 0 : current - 1);
-        const next = list[nextIndex];
+        const next = current < 0 ? list[0] : navNeighbor(list, current, dir, unreadNav);
         if (next) {
-          setNavDir(event.key === "j" ? "next" : "prev");
+          setNavDir(dir);
           navigate(articleHref(next));
           // Browsing with j/k reads like clicking: the article you land on is read.
           if (!next.readAt) setRead.mutate({ id: next.id, read: true });
@@ -268,7 +280,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
     // refresh.mutate is stable; depending on the mutation object would re-bind the
     // listener every render.
-  }, [articleList, feedId, listId, feeds.data, lists.data, listShortcuts, navigate, refresh.mutate, snooze.mutate, saveToList.mutate, setRead.mutate, selectedArticle, shortcutHelp, toggle]);
+  }, [articleList, feedId, listId, feeds.data, lists.data, listShortcuts, navigate, refresh.mutate, snooze.mutate, saveToList.mutate, setRead.mutate, selectedArticle, shortcutHelp, toggle, unreadNav]);
 
   const loadMore = useCallback(() => {
     if (articles.hasNextPage && !articles.isFetchingNextPage) void articles.fetchNextPage();
@@ -287,6 +299,13 @@ export function App() {
         )}
         <h1 className="brand">Reader</h1>
         <span className="spacer" />
+        <button
+          className="icon-btn"
+          aria-label="Jump between unread articles only"
+          aria-pressed={unreadNav}
+          title="Jump between unread articles only"
+          onClick={toggleUnreadNav}
+        >‹•›</button>
         {!isStandalone() && (
           <button
             className="icon-btn"
