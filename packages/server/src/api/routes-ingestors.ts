@@ -13,7 +13,7 @@ interface PatchBody {
   filterThreshold?: number; llmEnabled?: boolean;
 }
 
-const KINDS = ["mastodon", "bluesky", "reddit"];
+const KINDS = ["mastodon", "bluesky", "reddit", "composite"];
 const DIGEST_MODES = ["realtime", "hourly", "daily"];
 
 const SECRET_KEYS = new Set(["appPassword", "clientSecret", "password"]);
@@ -58,6 +58,10 @@ function serializeIngestor(i: Ingestor): Ingestor & { hasCredentials: boolean } 
 }
 
 function feedUrl(kind: string, config: Record<string, unknown>): string {
+  if (kind === "composite") {
+    const name = (config.name as string) || "combined";
+    return `ingestor://composite/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "combined"}`;
+  }
   if (kind === "reddit") return `ingestor://reddit/r/${config.subreddit}`;
   if (kind === "mastodon") {
     return config.tag
@@ -91,7 +95,7 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
   app.post<{ Body: CreateBody }>("/api/v1/ingestors", async (req, reply) => {
     const { kind, config: rawConfig } = req.body ?? {};
     if (!kind || !KINDS.includes(kind) || !rawConfig || typeof rawConfig !== "object") {
-      return reply.code(400).send({ error: { code: "invalid_ingestor", message: "kind (mastodon|bluesky|reddit) and config object are required" } });
+      return reply.code(400).send({ error: { code: "invalid_ingestor", message: "kind (mastodon|bluesky|reddit|composite) and config object are required" } });
     }
     const config = boundaryConfig(rawConfig);
     if (req.body?.digestMode !== undefined && !DIGEST_MODES.includes(req.body.digestMode)) {

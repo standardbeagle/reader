@@ -103,7 +103,7 @@ export interface NormalizedItem {
   publishedAt: string | null;
 }
 
-export type IngestorKind = "mastodon" | "bluesky" | "reddit";
+export type IngestorKind = "mastodon" | "bluesky" | "reddit" | "composite";
 export type DigestMode = "realtime" | "hourly" | "daily";
 
 export interface Ingestor {

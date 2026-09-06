@@ -3,8 +3,9 @@ import type { Storage, Ingestor, NormalizedItem } from "../storage/types.js";
 import type { LlmClient } from "../llm/client.js";
 import { processItems, type PipelineResult } from "../llm/pipeline.js";
 import { adapters } from "./index.js";
+import type { AdapterContext } from "./types.js";
 
-export type FetchFn = (config: Record<string, unknown>, cursor: Record<string, unknown> | null) => Promise<{ items: NormalizedItem[]; cursor: Record<string, unknown> }>;
+export type FetchFn = (config: Record<string, unknown>, cursor: Record<string, unknown> | null, ctx: AdapterContext) => Promise<{ items: NormalizedItem[]; cursor: Record<string, unknown> }>;
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -29,7 +30,8 @@ export class IngestorEngine {
     if (!ing) return { error: "ingestor not found" };
     if (ing.status === "broken") return { error: "ingestor broken" };
     try {
-      const { items, cursor } = await this.fetchFn(ing)(ing.config, ing.cursor);
+      const ctx: AdapterContext = { storage: this.storage, userId: ing.userId };
+      const { items, cursor } = await this.fetchFn(ing)(ing.config, ing.cursor, ctx);
       this.storage.stageItems(ing.id, items);
       let kept = 0;
       let dropped = 0;
@@ -121,7 +123,7 @@ export class IngestorEngine {
     if (opts.llmEnabled && !this.llm) {
       throw new Error("LLM filtering is enabled but no OPENROUTER_API_KEY is configured");
     }
-    const { items } = await fn(config, null);
+    const { items } = await fn(config, null, { storage: this.storage, userId: this.storage.getOrCreateLocalUser().id });
     return processItems(items, { llm: opts.llmEnabled ? this.llm : null, threshold: opts.threshold });
   }
 }

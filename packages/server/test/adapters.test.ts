@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { mastodonAdapter } from "../src/ingestors/mastodon.js";
 import { blueskyAdapter } from "../src/ingestors/bluesky.js";
 import { redditAdapter } from "../src/ingestors/reddit.js";
+const testCtx: import("../src/ingestors/types.js").AdapterContext = { storage: {} as never, userId: "u1" };
 
 type Handler = (u: URL) => unknown;
 
@@ -42,12 +43,12 @@ describe("mastodon adapter", () => {
       return timeline;
     };
     const cfg = { instance: new URL(baseUrl).host, tag: "ai", _baseUrl: baseUrl };
-    const first = await mastodonAdapter.fetch(cfg, null);
+    const first = await mastodonAdapter.fetch(cfg, null, testCtx);
     expect(first.items).toHaveLength(2);
     expect(first.items[0]!.text).toBe("Hello world");
     expect(first.items[0]!.author).toBe("alice@mastodon.social");
     expect(first.cursor).toEqual({ maxId: "100" });
-    const second = await mastodonAdapter.fetch(cfg, first.cursor);
+    const second = await mastodonAdapter.fetch(cfg, first.cursor, testCtx);
     expect(sawMaxId).toBe("100");
     expect(second.items[0]!.externalId).toBe("101");
   });
@@ -63,7 +64,7 @@ describe("bluesky adapter", () => {
   it("fetches author feed and normalizes urls", async () => {
     serveRoutes({ "/xrpc/app.bsky.feed.getAuthorFeed": feed });
     const cfg = { handle: "bob.bsky.social", _baseUrl: baseUrl };
-    const result = await blueskyAdapter.fetch(cfg, null);
+    const result = await blueskyAdapter.fetch(cfg, null, testCtx);
     expect(result.items).toHaveLength(1);
     expect(result.items[0]!.externalId).toBe("at://did:plc:x/app.bsky.feed.post/abc");
     expect(result.items[0]!.url).toBe("https://bsky.app/profile/bob.bsky.social/post/abc");
@@ -84,7 +85,7 @@ describe("reddit adapter", () => {
   it("fetches subreddit listing and normalizes", async () => {
     serveRoutes({ "/r/technology/new.json": listing });
     const cfg = { subreddit: "technology", _baseUrl: baseUrl };
-    const result = await redditAdapter.fetch(cfg, null);
+    const result = await redditAdapter.fetch(cfg, null, testCtx);
     expect(result.items).toHaveLength(1);
     expect(result.items[0]!.externalId).toBe("t3_aaa");
     expect(result.items[0]!.title).toBe("Big news");

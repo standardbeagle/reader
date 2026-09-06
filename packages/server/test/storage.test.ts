@@ -46,6 +46,20 @@ describe("sqlite storage", () => {
     expect(storage.listArticles({ userId, limit: 50 })).toHaveLength(2);
   });
 
+  it("falls back to the first content image as hero", () => {
+    const feed = makeFeed();
+    const arts = [
+      { guid: "g3", url: null, title: "T3", author: null, publishedAt: null, contentHtml: "<p>before</p><img src=\"/img/pic.jpg\"><p>after</p>", summary: null, imageUrl: null },
+      { guid: "g4", url: "https://b.example.com/post", title: "T4", author: null, publishedAt: null, contentHtml: "<img src=\"/relative.png\">", summary: null, imageUrl: null },
+      { guid: "g5", url: null, title: "T5", author: null, publishedAt: null, contentHtml: "<p>no images</p>", summary: null, imageUrl: null },
+    ];
+    const inserted = storage.upsertArticles(feed.id, arts, identity);
+    expect(inserted[0]!.imageUrl).toBe("https://a.example.com/img/pic.jpg");
+    // relative src resolves against the article url, not the feed url
+    expect(inserted[1]!.imageUrl).toBe("https://b.example.com/relative.png");
+    expect(inserted[2]!.imageUrl).toBeNull();
+  });
+
   it("stores feed categories and filters the list by them", () => {
     const feed = makeFeed();
     storage.upsertArticles(feed.id, [

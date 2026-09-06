@@ -19,6 +19,13 @@ function resolveHttpUrl(raw: string, baseUrl?: string): string | null {
   }
 }
 
+/** First http(s) image in sanitized content, as a hero fallback for pinboard cards. */
+function heroFromContent(html: string | null, baseUrl?: string): string | null {
+  if (!html) return null;
+  const match = /<img\s[^>]*?src\s*=\s*["']([^"']+)["']/i.exec(html);
+  return match ? resolveHttpUrl(match[1]!, baseUrl) : null;
+}
+
 export function createSqliteStorage(path: string): Storage {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
@@ -48,13 +55,20 @@ export function createSqliteStorage(path: string): Storage {
     const applied = d.prepare("SELECT name FROM schema_migrations");
     const record = d.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)");
     const done = new Set((applied.all() as { name: string }[]).map((r) => r.name));
-    for (const file of files) {
-      if (done.has(file)) continue;
-      const sql = readFileSync(join(dir, file), "utf8");
-      d.transaction(() => {
-        d.exec(sql);
-        record.run(file, new Date().toISOString());
-      })();
+    // Table-rebuild migrations drop referenced parent tables; PRAGMA foreign_keys
+    // cannot be changed inside the per-file transaction, so scope it here.
+    d.pragma("foreign_keys = OFF");
+    try {
+      for (const file of files) {
+        if (done.has(file)) continue;
+        const sql = readFileSync(join(dir, file), "utf8");
+        d.transaction(() => {
+          d.exec(sql);
+          record.run(file, new Date().toISOString());
+        })();
+      }
+    } finally {
+      d.pragma("foreign_keys = ON");
     }
   }
 
@@ -241,7 +255,8 @@ export function createSqliteStorage(path: string): Storage {
             ? sanitize(looksLikeHtml(contentSource) ? contentSource : plainTextToHtml(contentSource), a.url ?? resolvedBaseUrl)
             : null;
           const summary = rawContent ? rawSummary : contentSource ? null : rawSummary;
-          const imageUrl = a.imageUrl ? resolveHttpUrl(a.imageUrl, a.url ?? resolvedBaseUrl) : null;
+          const imageUrl = (a.imageUrl ? resolveHttpUrl(a.imageUrl, a.url ?? resolvedBaseUrl) : null)
+            ?? heroFromContent(contentHtml, a.url ?? resolvedBaseUrl);
           const categories = (a.categories ?? []).slice(0, 8);
           const categoriesJson = JSON.stringify(categories);
           const res = insert.run(
@@ -301,7 +316,7 @@ export function createSqliteStorage(path: string): Storage {
       const articleColumns = includeContent
         ? "a.*"
         : `a.id, a.feed_id, a.guid, a.url, a.title, a.author, a.published_at,
-           NULL AS content_html, NULL AS summary, NULL AS image_url, a.fetched_at`;
+           NULL AS content_html, NULL AS summary, a.image_url, a.fetched_at`;
       // Ordering must stay aligned with the keyset cursor below:
       // (published_at, id) both directions included, so no page boundary can
       // skip or repeat a row. fetched_at is deliberately not a tiebreak — it

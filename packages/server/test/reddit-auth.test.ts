@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { redditAdapter } from "../src/ingestors/reddit.js";
+const testCtx: import("../src/ingestors/types.js").AdapterContext = { storage: {} as never, userId: "u1" };
 
 let server: Server;
 let baseUrl: string;
@@ -44,7 +45,7 @@ describe("reddit oauth", () => {
   it("client_credentials grant: gets token, calls oauth base with bearer", async () => {
     await start();
     const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", _baseUrl: baseUrl, _oauthBase: baseUrl, _tokenBase: baseUrl, _cacheKey: "rc1" };
-    const result = await redditAdapter.fetch(cfg, null);
+    const result = await redditAdapter.fetch(cfg, null, testCtx);
     expect(tokenCalls).toBe(1);
     expect(lastTokenBody).toContain("grant_type=client_credentials");
     expect(lastAuthHeader).toBe("Bearer tok-1");
@@ -54,7 +55,7 @@ describe("reddit oauth", () => {
   it("password grant when username+password present", async () => {
     await start();
     const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", username: "u", password: "p", _baseUrl: baseUrl, _oauthBase: baseUrl, _tokenBase: baseUrl, _cacheKey: "rc2" };
-    await redditAdapter.fetch(cfg, null);
+    await redditAdapter.fetch(cfg, null, testCtx);
     expect(lastTokenBody).toContain("grant_type=password");
     expect(lastTokenBody).toContain("username=u");
   });
@@ -62,8 +63,8 @@ describe("reddit oauth", () => {
   it("caches token across fetches", async () => {
     await start();
     const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", _baseUrl: baseUrl, _oauthBase: baseUrl, _tokenBase: baseUrl, _cacheKey: "rc3" };
-    await redditAdapter.fetch(cfg, null);
-    await redditAdapter.fetch(cfg, null);
+    await redditAdapter.fetch(cfg, null, testCtx);
+    await redditAdapter.fetch(cfg, null, testCtx);
     expect(tokenCalls).toBe(1);
   });
 
@@ -89,7 +90,7 @@ describe("reddit oauth", () => {
     try {
       const base = `http://127.0.0.1:${(strict.address() as AddressInfo).port}`;
       const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", _oauthBase: base, _tokenBase: base, _cacheKey: "rc401" };
-      const result = await redditAdapter.fetch(cfg, null);
+      const result = await redditAdapter.fetch(cfg, null, testCtx);
       expect(calls).toBe(2);
       expect(result.items).toHaveLength(1);
     } finally {

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { blueskyAdapter } from "../src/ingestors/bluesky.js";
+const testCtx: import("../src/ingestors/types.js").AdapterContext = { storage: {} as never, userId: "u1" };
 
 let server: Server;
 let baseUrl: string;
@@ -45,7 +46,7 @@ describe("bluesky auth", () => {
   it("creates a session and sends bearer token on api calls", async () => {
     await start();
     const cfg = { search: "open source", identifier: "me.bsky.social", appPassword: "pw", _baseUrl: baseUrl, _authBase: baseUrl, _cacheKey: "auth-basic" };
-    const result = await blueskyAdapter.fetch(cfg, null);
+    const result = await blueskyAdapter.fetch(cfg, null, testCtx);
     expect(authCalls).toBe(1);
     expect(lastAuthHeader).toBe("Bearer jwt-1");
     expect(result.items).toHaveLength(1);
@@ -54,15 +55,15 @@ describe("bluesky auth", () => {
   it("caches the session across fetches", async () => {
     await start();
     const cfg = { search: "x", identifier: "me.bsky.social", appPassword: "pw", _baseUrl: baseUrl, _authBase: baseUrl, _cacheKey: "cache-test-1" };
-    await blueskyAdapter.fetch(cfg, null);
-    await blueskyAdapter.fetch(cfg, null);
+    await blueskyAdapter.fetch(cfg, null, testCtx);
+    await blueskyAdapter.fetch(cfg, null, testCtx);
     expect(authCalls).toBe(1);
   });
 
   it("re-auths once on 401 from the api", async () => {
     await start({ rotatingTokens: true });
     const cfg = { search: "x", identifier: "me.bsky.social", appPassword: "pw", _baseUrl: baseUrl, _authBase: baseUrl, _cacheKey: "reauth-test" };
-    const result = await blueskyAdapter.fetch(cfg, null);
+    const result = await blueskyAdapter.fetch(cfg, null, testCtx);
     expect(authCalls).toBe(2);
     expect(result.items).toHaveLength(1);
   });
@@ -70,6 +71,6 @@ describe("bluesky auth", () => {
   it("throws on bad credentials", async () => {
     await start({ failFirstSession: true });
     const cfg = { search: "x", identifier: "me.bsky.social", appPassword: "wrong", _baseUrl: baseUrl, _authBase: baseUrl, _cacheKey: "bad-creds" };
-    await expect(blueskyAdapter.fetch(cfg, null)).rejects.toThrow(/bluesky auth failed/i);
+    await expect(blueskyAdapter.fetch(cfg, null, testCtx)).rejects.toThrow(/bluesky auth failed/i);
   });
 });
