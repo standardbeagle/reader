@@ -4,11 +4,13 @@ import { api, ApiError, feedPlatform, type IngestorTestResult, type DiscoveredFe
 import { ErrorCallout } from "./ErrorCallout";
 import { FeedPicker } from "./FeedPicker";
 
-type SourceKind = "rss" | "composite" | "mastodon" | "bluesky" | "reddit";
+type SourceKind = "rss" | "opml" | "composite" | "mastodon" | "bluesky" | "reddit";
 type Step = "kind" | "details" | "review";
 
 interface FormState {
   sourceUrl: string;
+  opmlText: string;
+  opmlName: string;
   name: string;
   sourceFeedIds: string[];
   instance: string;
@@ -31,6 +33,8 @@ interface FormState {
 
 const initial: FormState = {
   sourceUrl: "",
+  opmlText: "",
+  opmlName: "",
   name: "",
   sourceFeedIds: [],
   instance: "",
@@ -53,6 +57,7 @@ const initial: FormState = {
 
 const KIND_META: { kind: SourceKind; label: string; hint: string }[] = [
   { kind: "rss", label: "RSS / Atom feed", hint: "Follow a site or feed URL directly." },
+  { kind: "opml", label: "OPML import", hint: "Move your subscriptions in from another reader." },
   { kind: "composite", label: "Combined AI view", hint: "Merge several RSS feeds into one source, filtered and summarized by AI." },
   { kind: "mastodon", label: "Mastodon", hint: "Follow an account, tag, or search." },
   { kind: "bluesky", label: "Bluesky", hint: "Follow an account or search." },
@@ -82,6 +87,7 @@ function buildConfig(kind: SourceKind, f: FormState): Record<string, unknown> {
 
 function detailsComplete(kind: SourceKind, f: FormState): boolean {
   if (kind === "rss") return /^https?:\/\/.+/.test(f.sourceUrl.trim());
+  if (kind === "opml") return f.opmlText.length > 0;
   if (kind === "composite") return f.sourceFeedIds.length > 0;
   if (kind === "mastodon") return f.instance.trim().length > 0;
   if (kind === "bluesky") return f.handle.trim().length > 0 || f.search.trim().length > 0;
@@ -137,13 +143,30 @@ export function SourceWizard(props: { onClose: () => void }) {
     onSuccess: (result) => { setErrorCode(null); setTestResult(result); },
     onError: (e) => { setTestResult(null); setErrorCode(e instanceof ApiError ? e.code : "unknown"); },
   });
+  const importOpml = useMutation({
+    mutationFn: api.importOpml,
+    onSuccess: () => { invalidateAll(); props.onClose(); },
+    onError: (e) => setErrorCode(e instanceof ApiError ? e.code : "unknown"),
+  });
+
+  const pickOpmlFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      set("opmlText", String(reader.result ?? ""));
+      set("opmlName", file.name);
+    };
+    reader.readAsText(file);
+  };
 
   const isRss = kind === "rss";
-  const isIngestor = kind !== null && kind !== "rss";
+  const isOpml = kind === "opml";
+  // rss and opml go straight from details to done; ingestor kinds review first.
+  const isIngestor = kind !== null && !isRss && !isOpml;
   const config = kind ? buildConfig(kind, form) : {};
-  const busy = subscribe.isPending || createIngestor.isPending || test.isPending;
+  const busy = subscribe.isPending || createIngestor.isPending || test.isPending || importOpml.isPending;
   const stepIndex = step === "kind" ? 0 : step === "details" ? 1 : 2;
-  const stepLabel = isRss ? ["Type", "Feed URL"] : ["Type", "Source", "Options"];
+  const stepLabel = isRss ? ["Type", "Feed URL"] : isOpml ? ["Type", "File"] : ["Type", "Source", "Options"];
 
   const goNext = () => {
     if (!kind) return;
@@ -195,6 +218,21 @@ export function SourceWizard(props: { onClose: () => void }) {
             <input id="wiz-url" type="url" inputMode="url" value={form.sourceUrl} placeholder="https://example.com/feed.xml"
               autoComplete="url" spellCheck={false}
               onChange={(e) => set("sourceUrl", e.target.value)} />
+          </>
+        )}
+
+        {step === "details" && kind === "opml" && (
+          <>
+            <p className="sub">Pick an OPML file exported from another reader. Every feed in it is imported in one go; feeds you already follow are skipped.</p>
+            <input
+              type="file"
+              accept=".opml,.xml,text/xml,text/x-opml"
+              aria-label="OPML file"
+              onChange={(e) => pickOpmlFile(e.target.files?.[0])}
+            />
+            {form.opmlText && (
+              <p className="auth-hint">{form.opmlName} — {(form.opmlText.match(/xmlUrl/gi) ?? []).length} feeds found</p>
+            )}
           </>
         )}
 
@@ -361,7 +399,13 @@ export function SourceWizard(props: { onClose: () => void }) {
               {subscribe.isPending ? "Adding…" : "Add feed"}
             </button>
           )}
-          {step === "details" && !isRss && (
+          {step === "details" && isOpml && (
+            <button className="primary" disabled={busy || !detailsComplete("opml", form)}
+              onClick={() => importOpml.mutate(form.opmlText)}>
+              {importOpml.isPending ? "Importing…" : "Import feeds"}
+            </button>
+          )}
+          {step === "details" && isIngestor && (
             <button className="primary" disabled={busy || !detailsComplete(kind!, form)} onClick={goNext}>Next</button>
           )}
           {step === "review" && kind && (

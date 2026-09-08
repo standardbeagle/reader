@@ -79,6 +79,19 @@ const catalog: Record<string, ErrorInfo> = {
       "Try again in a moment",
     ],
   },
+  invalid_opml: {
+    title: "Couldn't read that OPML file",
+    explanation: "The file is not valid OPML, or it contains no feed outlines.",
+    steps: [
+      "Export subscriptions from your current reader as OPML (sometimes called “subscription list”)",
+      "Open the file in a text editor — it should start with an <opml> tag",
+    ],
+  },
+  too_many_feeds: {
+    title: "That OPML file is too large",
+    explanation: "One import can add at most 500 feeds.",
+    steps: ["Split the file and import it in parts"],
+  },
   unknown: {
     title: "Something went wrong",
     explanation: "An unexpected error occurred.",

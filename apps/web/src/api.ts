@@ -89,6 +89,8 @@ export const api = {
     throw new ApiError(body?.error?.message ?? `HTTP ${res.status}`, body?.error?.code ?? null, res.status);
   },
   discover: (url: string) => req<{ feeds: DiscoveredFeed[] }>("/api/v1/feeds/discover", { method: "POST", json: { url } }).then((r) => r.feeds),
+  importOpml: (opml: string) =>
+    req<{ added: Feed[]; skipped: { title: string; url: string; reason: string }[] }>("/api/v1/feeds/import", { method: "POST", json: { opml } }),
   unsubscribe: (id: string) => req<void>(`/api/v1/feeds/${id}`, { method: "DELETE" }),
   listArticles: (params: { feedId?: string; listId?: string; category?: string; before?: string; beforeId?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
