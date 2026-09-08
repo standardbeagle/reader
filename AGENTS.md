@@ -5,6 +5,18 @@
 - Tests: `tman run -- pnpm -r test`
 - Build: `tman run -- pnpm -r build`
 - Dev: `READER_PORT=3737 pnpm dev:server` + `pnpm dev:web`
+- Demo build: `VITE_DEMO=1 pnpm --filter @reader/web exec vite build --base=/reader/demo/ --outDir ../../site/public/demo --emptyOutDir` (CI does this in `.github/workflows/site.yml`)
+- Demo seed: `node scripts/build-demo-seed.mjs` (regenerates `apps/web/src/demo/seed.json` from the local dev DB — subscribe feeds first)
+- Screenshots: `node scripts/capture-screenshots.mjs [baseUrl]` (headless Chrome CDP, writes `site/src/assets/screenshots/`)
+
+## Static demo
+
+`dev.standardbeagle.com/reader/demo/` is the full web app built with `VITE_DEMO=1`.
+`apps/web/src/api.ts` swaps the HTTP client for `apps/web/src/demo/demoApi.ts`
+(top-level await on the env flag; `ApiError` lives in `apiShared.ts` because a
+demoApi→api import would deadlock that await). Read/snooze/list state persists
+in localStorage; anything needing a server answers `demo_readonly`. Hosted on
+GitHub Pages with the docs site — $0, inside the $5–10/month budget.
 
 ## Exposure posture
 
