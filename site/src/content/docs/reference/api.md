@@ -20,6 +20,7 @@ server binds 127.0.0.1 by default; see [Hosting](/reader/hosting/).
 | `GET /feeds` | All subscriptions with unread counts and fetch status |
 | `POST /feeds` | Subscribe. Body `{"url": "…"}`. Returns `201` with the feed, or `200` with a `feeds[]` choice list when the URL hosts several feeds |
 | `POST /feeds/discover` | Preview discoverable feeds at a URL without subscribing |
+| `POST /feeds/import` | OPML import. Body `{"opml": "<xml…>"}`. Returns `201` with `added[]` and `skipped[]`; first fetches run in the background. Capped at 500 feeds |
 | `DELETE /feeds/:id` | Unsubscribe |
 | `POST /feeds/:id/refresh` | Poll now. Returns `{"newArticles": n}` |
 | `POST /feeds/:id/mark-all-read` | Mark every article in the feed read |

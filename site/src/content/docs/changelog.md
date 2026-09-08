@@ -5,6 +5,16 @@ description: Notable changes to reader, newest first.
 
 ## Unreleased
 
+- **OPML import** — **+ Add source → OPML import** subscribes to every feed in
+  an exported OPML file at once; duplicates are skipped, first fetches run in
+  the background.
+- **Static demo** — the full web app on bundled content at `/reader/demo/`;
+  read, snooze, and list changes persist in the browser.
+- **Combined AI view (composite ingestor)** — merge several feeds into one
+  AI-filtered, summarized source.
+- **Source wizard** — one guided flow for RSS feeds, OPML, combined views, and
+  platform ingestors.
+- **Pinboard view** — image-led card grid for the article list.
 - **Unread neighbor indicators** — subtle dots at the reader's left/right edge
   and on the bottom navigation links show when the previous/next article is
   unread.

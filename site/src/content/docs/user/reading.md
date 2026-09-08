@@ -30,6 +30,8 @@ filter. Chips are per-feed — saved lists have their own membership instead.
 - A small dot at the left or right edge (and on the bottom navigation links)
   marks an unread neighbor. The **‹•›** header toggle restricts prev/next
   navigation — buttons, swipe, and `j`/`k` — to unread articles only.
+- The article list toggles between the dense list and an image-led pinboard
+  (card grid); the choice persists.
 - The article title links to the original URL in a new tab.
 
 ## Mobile

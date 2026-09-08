@@ -46,6 +46,19 @@ are skipped when credentials are absent.
 
 ## Subscribe to something
 
-Click **+ Add feed** in the sidebar and paste any RSS/Atom URL — the server
+Click **+ Add source** in the sidebar and paste any RSS/Atom URL — the server
 auto-discovers feeds behind common blog URLs. Articles appear within seconds
 of the initial fetch.
+
+## Move your subscriptions in
+
+**+ Add source → OPML import** reads an OPML file exported from any other
+reader (Feedly, Inoreader, FreshRSS, …) and subscribes to every feed in it at
+once. Feeds you already follow are skipped; the first fetch runs in the
+background, so large imports fill in over the next minutes.
+
+## Try the demo
+
+[dev.standardbeagle.com/reader/demo/](/reader/demo/) runs the full web app on
+bundled content — no install, no server. Read, snooze, and list changes stay
+in your browser.
