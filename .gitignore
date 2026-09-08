@@ -6,5 +6,7 @@ apps/desktop/out/
 *.tsbuildinfo
 .agnt/
 packages/server/reader.db*
+apps/web/dist-demo/
+site/public/demo/
 
 site/.astro/

@@ -92,6 +92,14 @@ const catalog: Record<string, ErrorInfo> = {
     explanation: "One import can add at most 500 feeds.",
     steps: ["Split the file and import it in parts"],
   },
+  demo_readonly: {
+    title: "This is the demo",
+    explanation: "The demo runs on fixed, bundled content. Adding sources needs your own reader instance.",
+    steps: [
+      "See the quick start to run reader locally or on your own server",
+      "Everything else — reading, snooze, lists, unread navigation — works here",
+    ],
+  },
   unknown: {
     title: "Something went wrong",
     explanation: "An unexpected error occurred.",

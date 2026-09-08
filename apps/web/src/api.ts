@@ -43,9 +43,11 @@ export function feedPlatform(url: string): "mastodon" | "bluesky" | "reddit" | "
   return (m?.[1] as "mastodon" | "bluesky" | "reddit" | "composite" | undefined) ?? null;
 }
 
-export class ApiError extends Error {
-  constructor(message: string, public code: string | null, public status: number) { super(message); }
-}
+// ApiError lives in apiShared so the demo adapter can throw it without
+// importing this module — a circular import would deadlock the top-level
+// await that selects the demo implementation below.
+import { ApiError } from "./apiShared";
+export { ApiError } from "./apiShared";
 
 async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   let res: Response;
@@ -71,7 +73,7 @@ async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Pr
   return res.json() as Promise<T>;
 }
 
-export const api = {
+const httpApi = {
   listFeeds: () => req<{ feeds: Feed[] }>("/api/v1/feeds").then((r) => r.feeds),
   refreshFeed: (id: string) => req<FeedRefreshResult>(`/api/v1/feeds/${id}/refresh`, { method: "POST" }),
   subscribe: async (url: string): Promise<SubscribeResult> => {
@@ -131,3 +133,10 @@ export const api = {
   testIngestor: (input: { kind: string; config: Record<string, unknown>; threshold?: number; llmEnabled?: boolean }) =>
     req<IngestorTestResult>("/api/v1/ingestors/test", { method: "POST", json: input }),
 };
+
+// Demo builds (VITE_DEMO=1) serve the same surface from a bundled seed plus a
+// localStorage overlay — no server involved. The dynamic import keeps the seed
+// out of production chunks; the static env check makes the branch dead code.
+export const api: typeof httpApi = import.meta.env.VITE_DEMO === "1"
+  ? (await import("./demo/demoApi")).demoApi
+  : httpApi;

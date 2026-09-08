@@ -27,6 +27,8 @@ input:focus { outline: none; border-color: var(--accent); }
 .header .spacer { flex: 1; }
 .icon-btn { width: 28px; height: 28px; display: grid; place-items: center; color: var(--text-dim); }
 .icon-btn[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-bg); border-radius: var(--radius); }
+.demo-banner { font-size: var(--fs-xs); color: var(--text-dim); }
+.demo-banner a { color: var(--accent-text); font-weight: 600; }
 .hamburger { display: none; }
 
 .layout { display: grid; grid-template-columns: 240px 360px 1fr; min-height: 0; }

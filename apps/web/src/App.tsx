@@ -298,6 +298,12 @@ export function App() {
           <button className="icon-btn hamburger" aria-label="Toggle feeds" onClick={() => setDrawerOpen((v) => !v)}>☰</button>
         )}
         <h1 className="brand">Reader</h1>
+        {import.meta.env.VITE_DEMO === "1" && (
+          <span className="demo-banner">
+            Demo — bundled content, changes stay in this browser.{" "}
+            <a href="https://github.com/standardbeagle/reader">Get reader</a>
+          </span>
+        )}
         <span className="spacer" />
         <button
           className="icon-btn"

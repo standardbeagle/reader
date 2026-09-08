@@ -10,14 +10,16 @@ import "./styles.css";
 const queryClient = new QueryClient();
 
 initInstallPrompt();
-if ("serviceWorker" in navigator) {
+// The service worker serves the real app; the demo is a static bundle where a
+// stale cache would pin old seed data.
+if ("serviceWorker" in navigator && import.meta.env.VITE_DEMO !== "1") {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <Routes>
           <Route path="/" element={<App />} />
           <Route path="/feeds/:feedId" element={<App />} />
