@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'apps/web/**'
       - '.github/workflows/site.yml'
   workflow_dispatch:
 
@@ -22,11 +23,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: site/package-lock.json
+      # Static demo: the web app with a bundled seed instead of a server,
+      # served under /reader/demo/ on the same Pages site.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @reader/web exec vite build --base=/reader/demo/ --outDir ../../site/public/demo --emptyOutDir
+        env:
+          VITE_DEMO: "1"
       - run: npm ci
         working-directory: site
       - run: npm run build
