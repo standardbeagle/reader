@@ -80,6 +80,32 @@ describe("api", () => {
     expect(dup.statusCode).toBe(409);
   });
 
+  it("imports feeds from OPML, skipping duplicates and invalid urls", async () => {
+    await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml` } });
+    const opml = `<?xml version="1.0"?><opml version="2.0"><body>
+      <outline text="Dup" xmlUrl="${baseUrl}/feed.xml"/>
+      <outline text="New" xmlUrl="${baseUrl}/other.xml" htmlUrl="${baseUrl}/other"/>
+      <outline text="Bad" xmlUrl="ftp://nope/feed"/>
+    </body></opml>`;
+    const res = await app.inject({ method: "POST", url: "/api/v1/feeds/import", payload: { opml } });
+    expect(res.statusCode).toBe(201);
+    const { added, skipped } = res.json();
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ title: "New", url: `${baseUrl}/other.xml`, siteUrl: `${baseUrl}/other` });
+    expect(skipped).toEqual([
+      { title: "Dup", url: `${baseUrl}/feed.xml`, reason: "duplicate" },
+      { title: "Bad", url: "ftp://nope/feed", reason: "invalid_url" },
+    ]);
+    const list = await app.inject({ method: "GET", url: "/api/v1/feeds" });
+    expect(list.json().feeds).toHaveLength(2);
+  });
+
+  it("rejects an unparseable OPML import with 400", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/v1/feeds/import", payload: { opml: "<html>nope</html>" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_opml");
+  });
+
   it("returns 409 when a redirecting url resolves to an already-subscribed feed", async () => {
     const redir = await startFixtureServer({
       "/old.xml": { xml: "", redirectTo: "/feed.xml" },

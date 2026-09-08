@@ -1,7 +1,11 @@
 import type { FastifyInstance } from "fastify";
+import { parseOpml } from "@reader/core";
 import type { Storage } from "../storage/types.js";
 import type { Poller } from "../poller/poller.js";
 import { discoverFeeds } from "../discovery/discover.js";
+
+const MAX_IMPORT_FEEDS = 500;
+const IMPORT_CONCURRENCY = 4;
 
 interface SubscribeBody { url?: string }
 interface ReadBody { read?: boolean }
@@ -89,6 +93,53 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
       return reply.code(422).send({ error: { code: "feed_fetch_failed", message: result.error } });
     }
     return reply.code(201).send(storage.getFeed(feed.id));
+  });
+
+  // OPML import: create every outline as a feed, then refresh in the
+  // background with bounded concurrency. Awaiting hundreds of fetches would
+  // blow the request timeout; feeds surface as they finish their first fetch.
+  app.post<{ Body: { opml?: string } }>("/api/v1/feeds/import", async (req, reply) => {
+    const opml = req.body?.opml;
+    if (!opml || typeof opml !== "string") {
+      return reply.code(400).send({ error: { code: "invalid_opml", message: "body must be { opml: string }" } });
+    }
+    let outlines;
+    try {
+      outlines = await parseOpml(opml);
+    } catch {
+      return reply.code(400).send({ error: { code: "invalid_opml", message: "could not parse that OPML file" } });
+    }
+    if (outlines.length === 0) {
+      return reply.code(422).send({ error: { code: "no_feeds_found", message: "no feed outlines found in that OPML file" } });
+    }
+    if (outlines.length > MAX_IMPORT_FEEDS) {
+      return reply.code(422).send({ error: { code: "too_many_feeds", message: `import is capped at ${MAX_IMPORT_FEEDS} feeds` } });
+    }
+    const uid = userId();
+    const existing = new Set(storage.listFeeds(uid).map((f) => f.url));
+    const added = [];
+    const skipped = [];
+    for (const outline of outlines) {
+      if (!/^https?:\/\//.test(outline.xmlUrl)) {
+        skipped.push({ title: outline.title, url: outline.xmlUrl, reason: "invalid_url" });
+        continue;
+      }
+      if (existing.has(outline.xmlUrl)) {
+        skipped.push({ title: outline.title, url: outline.xmlUrl, reason: "duplicate" });
+        continue;
+      }
+      existing.add(outline.xmlUrl);
+      const feed = storage.createFeed(uid, { url: outline.xmlUrl, title: outline.title, siteUrl: outline.htmlUrl });
+      added.push(storage.getFeed(feed.id));
+    }
+    const queue = [...added];
+    const workers = Array.from({ length: IMPORT_CONCURRENCY }, async () => {
+      for (let feed; (feed = queue.shift()); ) {
+        await poller.refreshFeed(feed.id).catch(() => { /* failure shows as broken feed status */ });
+      }
+    });
+    void Promise.all(workers).catch(() => {});
+    return reply.code(201).send({ added, skipped });
   });
 
   app.get("/api/v1/feeds", async () => {
