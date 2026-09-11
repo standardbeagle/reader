@@ -42,6 +42,21 @@ describe("discoverFeeds", () => {
     expect(found).toContainEqual({ url: `${baseUrl}/feed.json`, title: "JSON One", kind: "json" });
   });
 
+  it("offers an IndieWeb page as an h-feed, after any real feed it links", async () => {
+    const entries = `<div class="h-feed"><h1 class="p-name">Notes</h1><article class="h-entry"><a class="u-url p-name" href="/n/1">One</a></article></div>`;
+    await start({
+      "/indie": { body: `<!doctype html><html><head><title>Indie</title></head><body>${entries}</body></html>` },
+      "/both": { body: `<!doctype html><html><head><link rel="alternate" type="application/rss+xml" href="/feed.xml"></head><body>${entries}</body></html>` },
+      "/feed.xml": { contentType: "application/rss+xml", body: RSS },
+    });
+    expect(await discoverFeeds(`${baseUrl}/indie`)).toEqual([
+      { url: `${baseUrl}/feed.xml`, title: "Site Feed", kind: "rss" },
+      { url: `${baseUrl}/indie`, title: "Notes", kind: "h-feed" },
+    ]);
+    const both = await discoverFeeds(`${baseUrl}/both`);
+    expect(both.map((f) => f.kind)).toEqual(["rss", "h-feed"]);
+  });
+
   it("extracts link rel=alternate tags, resolving relative hrefs", async () => {
     const html = `<html><head>
       <link rel="alternate" type="application/rss+xml" title="Main RSS" href="/feed.xml">

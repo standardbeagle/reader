@@ -123,7 +123,7 @@ export class Poller {
         if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
         etag = res.headers.get("etag");
         lastModified = res.headers.get("last-modified");
-        parsed = await parseFeed(res.body);
+        parsed = await parseFeed(res.body, { url: res.finalUrl });
       }
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
@@ -207,7 +207,7 @@ export class Poller {
         visited.add(next);
         const res = await this.fetchDocument(feed, next, {});
         if (res.status !== 200) throw new Error(`HTTP ${res.status} from ${next}`);
-        const page = await parseFeed(res.body);
+        const page = await parseFeed(res.body, { url: res.finalUrl });
         const inserted = this.storage.upsertArticles(feed.id, page.articles, sanitizeHtml, page.siteUrl ?? feed.siteUrl ?? feed.url);
         for (const article of inserted) this.storage.setRead(feed.userId, article.id, true);
         pages++;

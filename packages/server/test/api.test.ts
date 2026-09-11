@@ -133,6 +133,21 @@ describe("api", () => {
     }
   });
 
+  it("subscribes to an h-feed page and reads its entries", async () => {
+    const page = `<!doctype html><html><head><title>Indie</title></head><body><div class="h-feed">
+      <article class="h-entry"><a class="u-url p-name" href="/n/1">Note one</a><div class="e-content"><p>Body</p></div></article></div></body></html>`;
+    const indie = await startFixtureServer({ "/": { xml: page, contentType: "text/html" } });
+    try {
+      const res = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${indie.baseUrl}/` } });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().title).toBe("Indie");
+      const articles = (await app.inject({ method: "GET", url: `/api/v1/articles?feed_id=${res.json().id}` })).json().articles;
+      expect(articles.map((a: { title: string; url: string }) => [a.title, a.url])).toEqual([["Note one", `${indie.baseUrl}/n/1`]]);
+    } finally {
+      await new Promise((r) => indie.server.close(r));
+    }
+  });
+
   it("rejects a YouTube Takeout import that is not a subscriptions file", async () => {
     const bad = await app.inject({ method: "POST", url: "/api/v1/feeds/import/youtube", payload: { csv: "name,email\nbob,bob@example.com\n" } });
     expect(bad.statusCode).toBe(400);

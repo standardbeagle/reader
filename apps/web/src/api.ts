@@ -43,7 +43,7 @@ export interface SavedList {
 export interface CategoryCount { name: string; count: number }
 export interface ArticleCursor { before: string; beforeId: string }
 export interface ArticlePage { articles: Article[]; nextCursor: ArticleCursor | null }
-export interface DiscoveredFeed { url: string; title: string; kind: "rss" | "atom" | "json" }
+export interface DiscoveredFeed { url: string; title: string; kind: "rss" | "atom" | "json" | "h-feed" }
 export type SubscribeResult = { status: "subscribed"; feed: Feed } | { status: "choices"; feeds: DiscoveredFeed[] };
 export interface FeedRefreshResult {
   feed: Feed | null;

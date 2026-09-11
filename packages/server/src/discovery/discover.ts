@@ -1,8 +1,8 @@
 import pLimit from "p-limit";
-import { parseFeed } from "@reader/core";
+import { isHtmlDocument, parseFeed } from "@reader/core";
 import { fetchCapped } from "../fetch.js";
 
-export interface DiscoveredFeed { url: string; title: string; kind: "rss" | "atom" | "json" }
+export interface DiscoveredFeed { url: string; title: string; kind: "rss" | "atom" | "json" | "h-feed" }
 
 const COMMON_PATHS = [
   "/feed", "/feed.xml", "/rss", "/rss.xml", "/atom.xml", "/index.xml",
@@ -15,9 +15,10 @@ const FEED_MIME = /^application\/(rss\+xml|atom\+xml|feed\+json)$/i;
 const MAX_LINK_FEEDS = 10;
 const VERIFY_DEADLINE_MS = 20_000;
 
-function detectKind(body: string): "rss" | "atom" | "json" {
+function detectKind(body: string): DiscoveredFeed["kind"] {
   const t = body.trimStart();
   if (t.startsWith("{")) return "json";
+  if (isHtmlDocument(t)) return "h-feed";
   return t.includes("<feed") ? "atom" : "rss";
 }
 
@@ -54,6 +55,8 @@ async function tryParse(url: string): Promise<DiscoveredFeed | null> {
   try {
     const res = await fetchCapped(url, { maxBytes: 2 * 1024 * 1024, timeoutMs: 8_000 });
     if (res.status !== 200) return null;
+    // Probes look for real feeds; an HTML page reached here is not one.
+    if (isHtmlDocument(res.body)) return null;
     const parsed = await parseFeed(res.body);
     return { url: res.finalUrl, title: parsed.title, kind: detectKind(res.body) };
   } catch {
@@ -65,10 +68,22 @@ export async function discoverFeeds(url: string): Promise<DiscoveredFeed[]> {
   const res = await fetchCapped(url, { maxBytes: 5 * 1024 * 1024 });
   if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
 
-  try {
-    const parsed = await parseFeed(res.body);
-    return [{ url: res.finalUrl, title: parsed.title, kind: detectKind(res.body) }];
-  } catch { /* not a feed — treat as HTML and discover */ }
+  const isPage = isHtmlDocument(res.body);
+  if (!isPage) {
+    try {
+      const parsed = await parseFeed(res.body);
+      return [{ url: res.finalUrl, title: parsed.title, kind: detectKind(res.body) }];
+    } catch { /* not a feed — treat as HTML and discover */ }
+  }
+  // An IndieWeb page can be its own feed (h-feed). Offer it after any real
+  // feed the site links, since RSS/Atom usually carry fuller content.
+  let hFeed: DiscoveredFeed | null = null;
+  if (isPage) {
+    try {
+      const parsed = await parseFeed(res.body, { url: res.finalUrl });
+      hFeed = { url: res.finalUrl, title: parsed.title, kind: "h-feed" };
+    } catch { /* no h-entry on the page */ }
+  }
 
   const linked = extractLinkFeeds(res.body, res.finalUrl).slice(0, MAX_LINK_FEEDS);
   const candidates = linked.map((f) => f.url);
@@ -95,5 +110,6 @@ export async function discoverFeeds(url: string): Promise<DiscoveredFeed[]> {
   for (const f of linked) {
     if (!seen.has(f.url)) { seen.add(f.url); found.push(f); }
   }
+  if (hFeed && !seen.has(hFeed.url)) found.push(hFeed);
   return found;
 }
