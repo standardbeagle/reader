@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type {
   Storage, User, Feed, Article, ArticleWithState, ArticleQuery, FetchState,
   NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount,
+  Credential, CredentialSecret,
 } from "./types.js";
 import { looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
 
@@ -83,7 +84,20 @@ export function createSqliteStorage(path: string): Storage {
       fetchIntervalMin: r.fetch_interval_min as number,
       errorCount: r.error_count as number,
       status: r.status as "ok" | "broken",
+      credentialId: (r.credential_id as string) ?? null,
       createdAt: r.created_at as string,
+    };
+  }
+
+  function rowToCredential(r: Record<string, unknown>): Credential {
+    return {
+      id: r.id as string, userId: r.user_id as string,
+      provider: r.provider as Credential["provider"],
+      label: r.label as string,
+      origin: r.origin as string,
+      secret: JSON.parse(r.secret as string) as CredentialSecret,
+      createdAt: r.created_at as string,
+      updatedAt: r.updated_at as string,
     };
   }
 
@@ -164,8 +178,8 @@ export function createSqliteStorage(path: string): Storage {
     createFeed(userId, input): Feed {
       const id = randomUUID();
       const now = new Date().toISOString();
-      db.prepare(`INSERT INTO feeds (id, user_id, url, title, site_url, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?)`).run(id, userId, input.url, input.title, input.siteUrl, now);
+      db.prepare(`INSERT INTO feeds (id, user_id, url, title, site_url, credential_id, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, userId, input.url, input.title, input.siteUrl, input.credentialId ?? null, now);
       return this.getFeed(id)!;
     },
 
@@ -592,5 +606,31 @@ export function createSqliteStorage(path: string): Storage {
         WHERE ingestor_id = ? AND external_id IN (${placeholders})
       `).run(new Date().toISOString(), ingestorId, ...externalIds);
     },
+
+    createCredential(userId, input): Credential {
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      db.prepare(`INSERT INTO credentials (id, user_id, provider, label, origin, secret, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, userId, input.provider, input.label, input.origin, JSON.stringify(input.secret), now, now);
+      return this.getCredential(id)!;
+    },
+
+    listCredentials(userId): Credential[] {
+      const rows = db.prepare("SELECT * FROM credentials WHERE user_id = ? ORDER BY created_at").all(userId) as Record<string, unknown>[];
+      return rows.map(rowToCredential);
+    },
+
+    getCredential(id): Credential | null {
+      const r = db.prepare("SELECT * FROM credentials WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+      return r ? rowToCredential(r) : null;
+    },
+
+    updateCredentialSecret(id, secret) {
+      db.prepare("UPDATE credentials SET secret = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(secret), new Date().toISOString(), id);
+    },
+
+    deleteCredential(id) { db.prepare("DELETE FROM credentials WHERE id = ?").run(id); },
   };
 }

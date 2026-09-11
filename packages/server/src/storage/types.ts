@@ -15,7 +15,38 @@ export interface Feed {
   fetchIntervalMin: number;
   errorCount: number;
   status: "ok" | "broken";
+  /** Credential sent with every fetch of this feed; null for public feeds. */
+  credentialId: string | null;
   createdAt: string;
+}
+
+export type CredentialProvider = "generic" | "mastodon" | "reddit";
+
+export type CredentialSecret =
+  | { kind: "basic"; username: string; password: string }
+  | { kind: "bearer"; token: string }
+  | {
+    kind: "oauth2";
+    tokenUrl: string;
+    clientId: string;
+    clientSecret: string | null;
+    accessToken: string;
+    refreshToken: string | null;
+    /** ISO time the access token stops working; null when it does not expire. */
+    expiresAt: string | null;
+  };
+
+export interface Credential {
+  id: string;
+  userId: string;
+  provider: CredentialProvider;
+  /** Human name: an account handle, or the host a feed credential serves. */
+  label: string;
+  /** The only scheme://host[:port] this credential is ever sent to. */
+  origin: string;
+  secret: CredentialSecret;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Article {
@@ -134,7 +165,7 @@ export interface IngestorPatch {
 export interface Storage {
   close(): void | Promise<void>;
   getOrCreateLocalUser(): User;
-  createFeed(userId: string, input: { url: string; title: string; siteUrl: string | null }): Feed;
+  createFeed(userId: string, input: { url: string; title: string; siteUrl: string | null; credentialId?: string | null }): Feed;
   listFeeds(userId: string): Feed[];
   getFeed(id: string): Feed | null;
   deleteFeed(id: string): void;
@@ -169,4 +200,9 @@ export interface Storage {
   stageItems(ingestorId: string, items: NormalizedItem[]): NormalizedItem[];
   pendingItems(ingestorId: string): NormalizedItem[];
   markDelivered(ingestorId: string, externalIds: string[]): void;
+  createCredential(userId: string, input: { provider: CredentialProvider; label: string; origin: string; secret: CredentialSecret }): Credential;
+  listCredentials(userId: string): Credential[];
+  getCredential(id: string): Credential | null;
+  updateCredentialSecret(id: string, secret: CredentialSecret): void;
+  deleteCredential(id: string): void;
 }
