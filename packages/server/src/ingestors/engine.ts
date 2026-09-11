@@ -12,6 +12,21 @@ function escapeHtml(s: string): string {
 }
 
 export class IngestorEngine {
+  /**
+   * Work per ingestor runs one at a time: a stream delivering items while a
+   * scheduled poll is mid-pipeline would otherwise run the LLM over the same
+   * pending items twice. Each entry is the tail of that ingestor's chain.
+   */
+  private readonly chains = new Map<string, Promise<unknown>>();
+
+  private serial<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const run = (this.chains.get(id) ?? Promise.resolve()).then(work, work);
+    const tail = run.catch(() => {});
+    this.chains.set(id, tail);
+    void tail.then(() => { if (this.chains.get(id) === tail) this.chains.delete(id); });
+    return run;
+  }
+
   constructor(
     private readonly storage: Storage,
     private readonly llm: LlmClient | null,
@@ -25,7 +40,33 @@ export class IngestorEngine {
     return fn;
   }
 
-  async processIngestor(id: string): Promise<{ fetched: number; kept: number; dropped: number } | { error: string }> {
+  processIngestor(id: string): Promise<{ fetched: number; kept: number; dropped: number } | { error: string }> {
+    return this.serial(id, () => this.fetchAndDeliver(id));
+  }
+
+  /**
+   * Items a real-time stream pushed. They are staged exactly like polled
+   * ones (duplicates of what a poll already saw are dropped by external id),
+   * and a realtime ingestor delivers them straight away.
+   */
+  ingestStreamed(id: string, items: NormalizedItem[]): Promise<{ staged: number; kept: number; dropped: number } | { error: string }> {
+    return this.serial(id, async () => {
+      const ing = this.storage.getIngestor(id);
+      if (!ing) return { error: "ingestor not found" };
+      if (ing.status === "broken") return { error: "ingestor broken" };
+      const staged = this.storage.stageItems(ing.id, items);
+      if (staged.length === 0 || ing.digestMode !== "realtime") return { staged: staged.length, kept: 0, dropped: 0 };
+      try {
+        const result = await this.runPipeline(ing, this.storage.pendingItems(ing.id), "original");
+        return { staged: staged.length, kept: result.kept.length, dropped: result.dropped.length };
+      } catch (e) {
+        // Items stay staged; the next poll or stream batch retries delivery.
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    });
+  }
+
+  private async fetchAndDeliver(id: string): Promise<{ fetched: number; kept: number; dropped: number } | { error: string }> {
     const ing = this.storage.getIngestor(id);
     if (!ing) return { error: "ingestor not found" };
     if (ing.status === "broken") return { error: "ingestor broken" };
@@ -57,7 +98,11 @@ export class IngestorEngine {
     }
   }
 
-  async flushDigest(id: string): Promise<{ kept: number; dropped: number } | { error: string }> {
+  flushDigest(id: string): Promise<{ kept: number; dropped: number } | { error: string }> {
+    return this.serial(id, () => this.deliverDigest(id));
+  }
+
+  private async deliverDigest(id: string): Promise<{ kept: number; dropped: number } | { error: string }> {
     const ing = this.storage.getIngestor(id);
     if (!ing) return { error: "ingestor not found" };
     const pending = this.storage.pendingItems(ing.id);

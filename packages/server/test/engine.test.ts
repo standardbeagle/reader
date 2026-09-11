@@ -69,6 +69,27 @@ describe("IngestorEngine", () => {
     expect(articles[0]!.contentHtml).toContain("https://x/");
   });
 
+  it("streamed items share staging and dedupe with polling, and never run the pipeline twice at once", async () => {
+    let filterCalls = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const slowLlm: LlmClient = {
+      async filterBatch(items) { filterCalls++; await gate; return items.map((i) => ({ id: i.id, score: 9, reason: "ok" })); },
+      async summarizeBatch(items) { return items.map((i) => ({ id: i.id, title: `Clean: ${i.title}`, summary: "S." })); },
+    };
+    const engine = new IngestorEngine(storage, slowLlm, { test: async () => ({ items: [item(1), item(2)], cursor: {} }) });
+    const ing = makeIngestor(engine);
+    const polled = engine.processIngestor(ing.id);
+    const streamed = engine.ingestStreamed(ing.id, [item(2), item(3)]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(filterCalls).toBe(1); // the stream batch waits for the poll's pipeline
+    release();
+    expect(await polled).toMatchObject({ fetched: 2, kept: 2 });
+    expect(await streamed).toEqual({ staged: 1, kept: 1, dropped: 0 });
+    expect(storage.listArticles({ userId, feedId: ing.feedId, limit: 50 }).map((a) => a.title).sort())
+      .toEqual(["Clean: post 1", "Clean: post 2", "Clean: post 3"]);
+  });
+
   it("dedupes across runs", async () => {
     const engine = new IngestorEngine(storage, fakeLlm, {
       test: async () => ({ items: [item(1), item(2)], cursor: {} }),
