@@ -39,11 +39,94 @@ const shots = [
     viewport: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
     url: BASE,
     pre: `localStorage.removeItem('reader.articleView')`,
-    act: `document.querySelectorAll('.list li button')[3].click()`,
+    // NASA's image of the day, so the phone shot leads with a picture.
+    act: `
+      __q('button.hamburger').click();
+      await __until(() => __q('.sidebar li > button', 'NASA'));
+      const before = document.querySelector('.list li button')?.textContent;
+      __q('.sidebar li > button', 'NASA').click();
+      // Wait for the list to swap to NASA's articles before opening the first.
+      await __until(() => { const first = document.querySelector('.list li button'); return first && first.textContent !== before; });
+      document.querySelector('.list li button').click();`,
     waitFor: `.list li button`,
-    settleMs: 1500,
+    settleMs: 12000, // NASA's full-size images are large
+  },
+  {
+    name: "mobile-podcast.png",
+    viewport: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+    url: BASE,
+    act: `
+      __q('button.hamburger').click();
+      await __until(() => __q('.sidebar li > button', 'Podcasting 2.0'));
+      __q('.sidebar li > button', 'Podcasting 2.0').click();
+      await __until(() => __q('.list li button', 'Episode'));
+      __q('.list li button', 'Episode').click();
+      await __until(() => document.querySelector('.episode-extra'));
+      document.querySelector('.episode-extra').open = true;
+      await __until(() => document.querySelector('.episode-chapters li'));`,
+    waitFor: `.list li button`,
+    settleMs: 2500,
+  },
+  {
+    // The newest Podcasting 2.0 episode ships with chapters and a transcript.
+    name: "podcast-episode.png",
+    viewport: { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false },
+    url: BASE,
+    act: `
+      __q('.sidebar li > button', 'Podcasting 2.0').click();
+      await __until(() => __q('.list li button', 'Episode'));
+      __q('.list li button', 'Episode').click();
+      await __until(() => document.querySelector('.episode-extra'));
+      document.querySelectorAll('.episode-extra').forEach((d) => { d.open = true; });
+      await __until(() => document.querySelector('.episode-transcript li'));`,
+    waitFor: `.sidebar li > button`,
+    settleMs: 2500,
+  },
+  {
+    name: "add-source.png",
+    viewport: { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false },
+    url: BASE,
+    act: `
+      __q('button', '+ Add source').click();
+      await __until(() => document.querySelector('.source-kind'));`,
+    waitFor: `.sidebar li > button`,
+    settleMs: 800,
+  },
+  {
+    name: "feed-sign-in.png",
+    viewport: { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false },
+    url: BASE,
+    act: `
+      __q('button', '+ Add source').click();
+      await __until(() => __q('.source-kind', 'RSS / Atom'));
+      __q('.source-kind', 'RSS / Atom').click();
+      await __until(() => document.getElementById('wiz-url'));
+      __set(document.getElementById('wiz-url'), 'https://members.example.com/feed.xml');
+      __set(document.getElementById('wiz-feed-auth'), 'oauth2');
+      await __until(() => document.getElementById('wiz-oauth-authorize'));
+      __set(document.getElementById('wiz-oauth-authorize'), 'https://members.example.com/oauth/authorize');
+      __set(document.getElementById('wiz-oauth-token'), 'https://members.example.com/oauth/token');
+      __set(document.getElementById('wiz-oauth-client'), 'reader');
+      __set(document.getElementById('wiz-oauth-scope'), 'feeds:read');`,
+    waitFor: `.sidebar li > button`,
+    settleMs: 800,
   },
 ];
+
+// Page-side helpers for multi-step acts: find by selector + text, set a React
+// input's value (the native setter plus an input/change event), await a condition.
+const HELPERS = `
+  const __q = (sel, text) => [...document.querySelectorAll(sel)].find((e) => !text || e.textContent.includes(text));
+  const __set = (el, v) => {
+    const proto = el.tagName === "SELECT" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(el, v);
+    el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+  };
+  const __until = (fn, ms = 10000) => new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const tick = () => { const v = fn(); if (v) resolve(v); else if (Date.now() - t0 > ms) reject(new Error("timed out: " + fn)); else setTimeout(tick, 150); };
+    tick();
+  });`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -125,16 +208,21 @@ for (const shot of shots) {
   await sleep(1800); // react render + demo seed chunk
   if (shot.act && shot.waitFor) {
     // Poll until the target exists, then act — the demo seed chunk loads async.
-    await cdp.send("Runtime.evaluate", {
+    const result = await cdp.send("Runtime.evaluate", {
       awaitPromise: true,
-      expression: `new Promise((resolve) => {
+      expression: `new Promise((resolve, reject) => {
+        ${HELPERS}
         const tryAct = () => {
-          if (document.querySelector(${JSON.stringify(shot.waitFor)})) { ${shot.act}; resolve(true); }
-          else setTimeout(tryAct, 250);
+          if (document.querySelector(${JSON.stringify(shot.waitFor)})) {
+            (async () => { ${shot.act} })().then(() => resolve(true), (e) => reject(String(e)));
+          } else setTimeout(tryAct, 250);
         };
         tryAct();
       })`,
     });
+    if (result.exceptionDetails) {
+      throw new Error(`${shot.name}: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`);
+    }
     await sleep(shot.settleMs);
   } else {
     await sleep(shot.settleMs);
