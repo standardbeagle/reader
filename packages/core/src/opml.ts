@@ -1,6 +1,6 @@
 import { parseStringPromise } from "xml2js";
 
-export interface OpmlOutline {
+export interface FeedOutline {
   title: string;
   xmlUrl: string;
   htmlUrl: string | null;
@@ -12,11 +12,11 @@ export interface OpmlOutline {
  * (actual feeds, not folder headers) are collected. Duplicated xmlUrls are
  * collapsed — readers export duplicates surprisingly often.
  */
-export function parseOpml(xml: string): Promise<OpmlOutline[]> {
+export function parseOpml(xml: string): Promise<FeedOutline[]> {
   return parseStringPromise(xml).then((doc) => {
     const body = doc?.opml?.body?.[0];
     if (!body) throw new Error("not an OPML document");
-    const out: OpmlOutline[] = [];
+    const out: FeedOutline[] = [];
     const seen = new Set<string>();
     const walk = (outlines: unknown): void => {
       if (!Array.isArray(outlines)) return;
