@@ -148,6 +148,33 @@ describe("api", () => {
     }
   });
 
+  it("reports whether an article's page may be framed", async () => {
+    const page = (headers: Record<string, string>) => ({ xml: "<html></html>", contentType: "text/html", headers });
+    const site = await startFixtureServer({
+      "/open": page({}),
+      "/sameorigin": page({ "x-frame-options": "SAMEORIGIN" }),
+      "/ancestors": page({ "content-security-policy": "frame-ancestors 'self' https://*.example.com" }),
+      "/gone": { xml: "", statusOnRequest: 404 },
+    });
+    const items = ["open", "sameorigin", "ancestors", "gone"].map((p) => `<item><title>${p}</title><link>${site.baseUrl}/${p}</link><guid>${p}</guid></item>`).join("");
+    site.state.set("/feed.xml", { xml: `<?xml version="1.0"?><rss version="2.0"><channel><title>F</title>${items}</channel></rss>`, requestCount: 0 });
+    try {
+      const feed = (await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${site.baseUrl}/feed.xml` } })).json();
+      const articles = (await app.inject({ method: "GET", url: `/api/v1/articles?feed_id=${feed.id}` })).json().articles as { id: string; title: string }[];
+      const check = async (title: string) => (await app.inject({ method: "GET", url: `/api/v1/articles/${articles.find((a) => a.title === title)!.id}/embeddable` })).json();
+      expect(await check("open")).toEqual({ embeddable: true, reason: null });
+      expect(await check("sameorigin")).toEqual({ embeddable: false, reason: "it sends X-Frame-Options: SAMEORIGIN" });
+      expect((await check("ancestors")).embeddable).toBe(false);
+      expect(await check("gone")).toEqual({ embeddable: null, reason: "the page answered HTTP 404" });
+      // Cached: a second check does not refetch the page.
+      const before = site.state.get("/sameorigin")!.requestCount;
+      await check("sameorigin");
+      expect(site.state.get("/sameorigin")!.requestCount).toBe(before);
+    } finally {
+      await new Promise((r) => site.server.close(r));
+    }
+  });
+
   it("rejects a YouTube Takeout import that is not a subscriptions file", async () => {
     const bad = await app.inject({ method: "POST", url: "/api/v1/feeds/import/youtube", payload: { csv: "name,email\nbob,bob@example.com\n" } });
     expect(bad.statusCode).toBe(400);

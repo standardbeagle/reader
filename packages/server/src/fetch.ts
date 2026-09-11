@@ -20,7 +20,11 @@ function withoutCredentials(headers: Record<string, string>): Record<string, str
 
 export async function fetchCapped(
   url: string,
-  opts: { headers?: Record<string, string>; timeoutMs?: number; maxBytes?: number; method?: "GET" | "POST"; body?: string } = {},
+  opts: {
+    headers?: Record<string, string>; timeoutMs?: number; maxBytes?: number; method?: "GET" | "POST"; body?: string;
+    /** Stop after the final response's headers; the body is discarded unread. */
+    headersOnly?: boolean;
+  } = {},
 ): Promise<CappedResponse> {
   const max = opts.maxBytes ?? MAX_FEED_BYTES;
   const signal = AbortSignal.timeout(opts.timeoutMs ?? 15_000);
@@ -53,6 +57,10 @@ export async function fetchCapped(
     const next = new URL(location, current);
     if (next.origin !== new URL(current).origin) headers = withoutCredentials(headers);
     current = next.href;
+  }
+  if (opts.headersOnly) {
+    await res.body?.cancel().catch(() => {});
+    return { status: res.status, headers: res.headers, finalUrl: current, body: "" };
   }
   const len = Number(res.headers.get("content-length") ?? 0);
   if (len > max) throw new Error(`response too large (>${Math.round(max / 1e6)}MB)`);
