@@ -1,0 +1,51 @@
+{
+  "name": "reader-features",
+  "viewport": { "width": 1440, "height": 900 },
+  "fps": 25,
+  "setup": {
+    "upstream": "./serve-demo.mjs",
+    "waitFor": "http://127.0.0.1:4816/reader/demo/"
+  },
+  "segments": [
+    {
+      "id": "card-intro", "type": "card", "dur": 3.4,
+      "kicker": "reader · open source",
+      "title": "What's new in reader",
+      "sub": "Private feeds, YouTube imports, podcasts with chapters and transcripts."
+    },
+    {
+      "id": "card-sources", "type": "card", "dur": 2.4,
+      "kicker": "Add source",
+      "title": "Bring everything in",
+      "sub": "Import YouTube subscriptions from Takeout. Sign in to private feeds with OAuth."
+    },
+    { "id": "sources", "type": "browser", "raw": true, "url": "http://127.0.0.1:4816/reader/demo/", "script": "./segments/sources.mjs" },
+    {
+      "id": "card-podcast", "type": "card", "dur": 2.4,
+      "kicker": "Podcasts",
+      "title": "Play, skim, jump",
+      "sub": "Podcasting 2.0 chapters and transcripts. Click a line to seek."
+    },
+    { "id": "podcast", "type": "browser", "raw": true, "url": "http://127.0.0.1:4816/reader/demo/", "script": "./segments/podcast.mjs" },
+    { "id": "pinboard", "type": "browser", "raw": true, "url": "http://127.0.0.1:4816/reader/demo/", "script": "./segments/pinboard.mjs" },
+    {
+      "id": "card-outro", "type": "card", "dur": 3.2,
+      "kicker": "Try it",
+      "title": "dev.standardbeagle.com/reader/demo",
+      "sub": "The full app on bundled content. No install."
+    }
+  ],
+  "narration": {
+    "optional": true,
+    "voice": "en-US-AndrewNeural",
+    "rate": "+2%",
+    "segments": [
+      { "id": "n1", "at": "card-intro", "text": "Here's what's new in reader, the open-source feed reader." },
+      { "id": "n2", "at": "sources+mark:youtube", "text": "YouTube has no feed for your subscriptions, so reader imports them from a Google Takeout export." },
+      { "id": "n3", "at": "sources+mark:oauth", "text": "Private feeds can sign in with a password, a token, or OAuth." },
+      { "id": "n4", "at": "podcast+mark:episode", "text": "Podcasts play right in the reader." },
+      { "id": "n5", "at": "podcast+mark:chapter", "text": "Chapters and transcripts jump the player to that moment." },
+      { "id": "n6", "at": "pinboard+mark:board", "text": "And YouTube channels read well as a pinboard." }
+    ]
+  }
+}

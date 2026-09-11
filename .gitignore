@@ -10,3 +10,4 @@ apps/web/dist-demo/
 site/public/demo/
 
 site/.astro/
+/scripts/demo-video/out/
