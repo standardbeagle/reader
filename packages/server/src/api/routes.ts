@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { parseOpml } from "@reader/core";
+import { parseOpml, parseYoutubeTakeout, type FeedOutline } from "@reader/core";
 import type { Storage } from "../storage/types.js";
 import type { Poller } from "../poller/poller.js";
 import { discoverFeeds } from "../discovery/discover.js";
@@ -95,26 +95,10 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     return reply.code(201).send(storage.getFeed(feed.id));
   });
 
-  // OPML import: create every outline as a feed, then refresh in the
-  // background with bounded concurrency. Awaiting hundreds of fetches would
-  // blow the request timeout; feeds surface as they finish their first fetch.
-  app.post<{ Body: { opml?: string } }>("/api/v1/feeds/import", async (req, reply) => {
-    const opml = req.body?.opml;
-    if (!opml || typeof opml !== "string") {
-      return reply.code(400).send({ error: { code: "invalid_opml", message: "body must be { opml: string }" } });
-    }
-    let outlines;
-    try {
-      outlines = await parseOpml(opml);
-    } catch {
-      return reply.code(400).send({ error: { code: "invalid_opml", message: "could not parse that OPML file" } });
-    }
-    if (outlines.length === 0) {
-      return reply.code(422).send({ error: { code: "no_feeds_found", message: "no feed outlines found in that OPML file" } });
-    }
-    if (outlines.length > MAX_IMPORT_FEEDS) {
-      return reply.code(422).send({ error: { code: "too_many_feeds", message: `import is capped at ${MAX_IMPORT_FEEDS} feeds` } });
-    }
+  // Imports create every outline as a feed, then refresh in the background
+  // with bounded concurrency. Awaiting hundreds of fetches would blow the
+  // request timeout; feeds surface as they finish their first fetch.
+  const importFeedOutlines = (outlines: FeedOutline[]) => {
     const uid = userId();
     const existing = new Set(storage.listFeeds(uid).map((f) => f.url));
     const added = [];
@@ -139,7 +123,51 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
       }
     });
     void Promise.all(workers).catch(() => {});
-    return reply.code(201).send({ added, skipped });
+    return { added, skipped };
+  };
+
+  const importLimitError = (outlines: FeedOutline[], source: string) => {
+    if (outlines.length === 0) {
+      return { code: "no_feeds_found", message: `no feeds found in that ${source}` };
+    }
+    if (outlines.length > MAX_IMPORT_FEEDS) {
+      return { code: "too_many_feeds", message: `import is capped at ${MAX_IMPORT_FEEDS} feeds` };
+    }
+    return null;
+  };
+
+  app.post<{ Body: { opml?: string } }>("/api/v1/feeds/import", async (req, reply) => {
+    const opml = req.body?.opml;
+    if (!opml || typeof opml !== "string") {
+      return reply.code(400).send({ error: { code: "invalid_opml", message: "body must be { opml: string }" } });
+    }
+    let outlines;
+    try {
+      outlines = await parseOpml(opml);
+    } catch {
+      return reply.code(400).send({ error: { code: "invalid_opml", message: "could not parse that OPML file" } });
+    }
+    const limitError = importLimitError(outlines, "OPML file");
+    if (limitError) return reply.code(422).send({ error: limitError });
+    return reply.code(201).send(importFeedOutlines(outlines));
+  });
+
+  // YouTube has no subscriptions feed; Takeout's subscriptions.csv lists the
+  // channel ids, each of which has its own Atom feed.
+  app.post<{ Body: { csv?: string } }>("/api/v1/feeds/import/youtube", async (req, reply) => {
+    const csv = req.body?.csv;
+    if (!csv || typeof csv !== "string") {
+      return reply.code(400).send({ error: { code: "invalid_takeout", message: "body must be { csv: string }" } });
+    }
+    let outlines;
+    try {
+      outlines = parseYoutubeTakeout(csv);
+    } catch (e) {
+      return reply.code(400).send({ error: { code: "invalid_takeout", message: e instanceof Error ? e.message : String(e) } });
+    }
+    const limitError = importLimitError(outlines, "subscriptions file");
+    if (limitError) return reply.code(422).send({ error: limitError });
+    return reply.code(201).send(importFeedOutlines(outlines));
   });
 
   app.get("/api/v1/feeds", async () => {

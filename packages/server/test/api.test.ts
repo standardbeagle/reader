@@ -106,6 +106,15 @@ describe("api", () => {
     expect(res.json().error.code).toBe("invalid_opml");
   });
 
+  it("rejects a YouTube Takeout import that is not a subscriptions file", async () => {
+    const bad = await app.inject({ method: "POST", url: "/api/v1/feeds/import/youtube", payload: { csv: "name,email\nbob,bob@example.com\n" } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toMatchObject({ code: "invalid_takeout", message: "line 2: not a YouTube channel id" });
+    const empty = await app.inject({ method: "POST", url: "/api/v1/feeds/import/youtube", payload: { csv: "Channel Id,Channel Url,Channel Title\n" } });
+    expect(empty.statusCode).toBe(422);
+    expect(empty.json().error.code).toBe("no_feeds_found");
+  });
+
   it("returns 409 when a redirecting url resolves to an already-subscribed feed", async () => {
     const redir = await startFixtureServer({
       "/old.xml": { xml: "", redirectTo: "/feed.xml" },
