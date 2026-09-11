@@ -7,6 +7,7 @@ import { parseJsonFeed } from "./json-feed.js";
 
 const parser = new Parser({
   customFields: {
+    feed: ["ttl", "sy:updatePeriod", "sy:updateFrequency"],
     item: [
       ["media:thumbnail", "media:thumbnail", { keepArray: true }],
       ["media:content", "media:content", { keepArray: true }],
@@ -66,6 +67,23 @@ function articleCategories(item: Record<string, unknown>): string[] {
   }));
 }
 
+const SY_PERIOD_MINUTES: Record<string, number> = {
+  hourly: 60, daily: 1440, weekly: 10_080, monthly: 43_200, yearly: 525_600,
+};
+
+/**
+ * RSS <ttl> is minutes to cache; the syndication module says "updates N times
+ * per period". Either is the publisher asking not to be polled more often.
+ */
+function updateHintMinutes(feed: Record<string, unknown>): number | null {
+  const ttl = Number(String(feed.ttl ?? "").trim());
+  if (Number.isFinite(ttl) && ttl > 0) return ttl;
+  const period = SY_PERIOD_MINUTES[String(feed["sy:updatePeriod"] ?? "").trim().toLowerCase()];
+  if (!period) return null;
+  const frequency = Number(String(feed["sy:updateFrequency"] ?? "1").trim()) || 1;
+  return period / Math.max(1, frequency);
+}
+
 // The transitive XML stack does not expand custom entities today, but a DOCTYPE
 // internal subset is the XXE / billion-laughs vector — reject it explicitly so a
 // future parser or option change cannot silently reintroduce the exposure. The
@@ -112,5 +130,6 @@ export async function parseFeed(xml: string): Promise<ParsedFeed> {
     title: raw.title?.trim() || "(untitled feed)",
     siteUrl: raw.link ?? null,
     articles,
+    updateHintMinutes: updateHintMinutes(raw as unknown as Record<string, unknown>),
   };
 }

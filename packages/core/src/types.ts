@@ -15,4 +15,6 @@ export interface ParsedFeed {
   title: string;
   siteUrl: string | null;
   articles: ParsedArticle[];
+  /** The publisher's own minimum refresh interval (RSS <ttl>, sy:updatePeriod/Frequency), in minutes. */
+  updateHintMinutes?: number | null;
 }

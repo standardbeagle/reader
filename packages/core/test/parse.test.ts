@@ -89,6 +89,14 @@ describe("parseFeed", () => {
     expect(short!.summary).toBeNull();
   });
 
+  it("reads the publisher's refresh hint from <ttl> or the syndication module", async () => {
+    const rss = (channel: string) => `<?xml version="1.0"?><rss version="2.0" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"><channel><title>T</title>${channel}</channel></rss>`;
+    expect((await parseFeed(rss("<ttl>180</ttl>"))).updateHintMinutes).toBe(180);
+    expect((await parseFeed(rss("<sy:updatePeriod>daily</sy:updatePeriod><sy:updateFrequency>4</sy:updateFrequency>"))).updateHintMinutes).toBe(360);
+    expect((await parseFeed(rss("<sy:updatePeriod>hourly</sy:updatePeriod>"))).updateHintMinutes).toBe(60);
+    expect((await parseFeed(rss("<ttl>soon</ttl>"))).updateHintMinutes).toBeNull();
+  });
+
   it("synthesizes a stable guid when missing", async () => {
     const a = await parseFeed(fixture("no-guid.xml"));
     const b = await parseFeed(fixture("no-guid.xml"));
