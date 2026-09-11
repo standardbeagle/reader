@@ -106,6 +106,33 @@ describe("api", () => {
     expect(res.json().error.code).toBe("invalid_opml");
   });
 
+  it("subscribes to a password-protected feed with a basic credential", async () => {
+    const { createServer: createHttpServer } = await import("node:http");
+    const expected = `Basic ${Buffer.from("ann:pw").toString("base64")}`;
+    const locked = createHttpServer((req, res) => {
+      if (req.headers.authorization !== expected) { res.writeHead(401).end(); return; }
+      res.writeHead(200, { "content-type": "application/rss+xml" }).end(RSS);
+    });
+    await new Promise<void>((r) => locked.listen(0, "127.0.0.1", r));
+    const lockedUrl = `http://127.0.0.1:${(locked.address() as import("node:net").AddressInfo).port}/private.xml`;
+    try {
+      const anonymous = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: lockedUrl } });
+      expect(anonymous.statusCode).toBe(422);
+      const cred = (await app.inject({ method: "POST", url: "/api/v1/credentials", payload: { kind: "basic", url: lockedUrl, username: "ann", password: "pw" } })).json();
+      const foreign = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: `${baseUrl}/feed.xml`, credentialId: cred.id } });
+      expect(foreign.statusCode).toBe(400);
+      expect(foreign.json().error.code).toBe("invalid_credential");
+      const res = await app.inject({ method: "POST", url: "/api/v1/feeds", payload: { url: lockedUrl, credentialId: cred.id } });
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({ title: "API Blog", credentialId: cred.id, status: "ok" });
+      const inUse = await app.inject({ method: "DELETE", url: `/api/v1/credentials/${cred.id}` });
+      expect(inUse.statusCode).toBe(409);
+      expect(inUse.json().error.code).toBe("credential_in_use");
+    } finally {
+      await new Promise((r) => locked.close(r));
+    }
+  });
+
   it("rejects a YouTube Takeout import that is not a subscriptions file", async () => {
     const bad = await app.inject({ method: "POST", url: "/api/v1/feeds/import/youtube", payload: { csv: "name,email\nbob,bob@example.com\n" } });
     expect(bad.statusCode).toBe(400);

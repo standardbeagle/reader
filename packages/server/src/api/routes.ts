@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseOpml, parseYoutubeTakeout, type FeedOutline } from "@reader/core";
 import type { Storage } from "../storage/types.js";
 import type { Poller } from "../poller/poller.js";
@@ -7,7 +7,7 @@ import { discoverFeeds } from "../discovery/discover.js";
 const MAX_IMPORT_FEEDS = 500;
 const IMPORT_CONCURRENCY = 4;
 
-interface SubscribeBody { url?: string }
+interface SubscribeBody { url?: string; credentialId?: string }
 interface ReadBody { read?: boolean }
 interface SnoozeBody { until?: string | null }
 interface ArticleQuery { feed_id?: string; list_id?: string; unread?: string; category?: string; before?: string; before_id?: string; limit?: string; content?: string; snoozed?: string }
@@ -59,6 +59,7 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     if (existing) {
       return reply.code(409).send({ error: { code: "duplicate", message: "already subscribed" }, feed: existing });
     }
+    if (req.body?.credentialId) return subscribeAuthenticated(url, req.body.credentialId, reply);
     let feeds;
     try {
       feeds = await discoverFeeds(url);
@@ -94,6 +95,25 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     }
     return reply.code(201).send(storage.getFeed(feed.id));
   });
+
+  // A credential belongs to one feed address, so discovery (which probes other
+  // paths and follows <link> tags) is skipped: the URL must be the feed itself.
+  const subscribeAuthenticated = async (url: string, credentialId: string, reply: FastifyReply) => {
+    const credential = storage.getCredential(credentialId);
+    if (!credential) {
+      return reply.code(400).send({ error: { code: "invalid_credential", message: "credential not found" } });
+    }
+    if (new URL(url).origin !== credential.origin) {
+      return reply.code(400).send({ error: { code: "invalid_credential", message: `${credential.label} signs in to ${credential.origin}, not this feed's host` } });
+    }
+    const feed = storage.createFeed(userId(), { url, title: new URL(url).host, siteUrl: null, credentialId });
+    const result = await poller.refreshFeed(feed.id);
+    if (result.error) {
+      storage.deleteFeed(feed.id);
+      return reply.code(422).send({ error: { code: "feed_fetch_failed", message: result.error } });
+    }
+    return reply.code(201).send(storage.getFeed(feed.id));
+  };
 
   // Imports create every outline as a feed, then refresh in the background
   // with bounded concurrency. Awaiting hundreds of fetches would blow the

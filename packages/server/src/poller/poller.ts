@@ -4,6 +4,7 @@ import type { Storage } from "../storage/types.js";
 import { adaptInterval, backoffMinutes } from "./interval.js";
 
 import { fetchCapped } from "../fetch.js";
+import { authorizationFor } from "../auth/credentials.js";
 
 export { MAX_FEED_BYTES } from "../fetch.js";
 
@@ -80,12 +81,20 @@ export class Poller {
     let lastModified: string | null = null;
     let notModified = false;
     try {
-      const res = await fetchCapped(feed.url, {
+      const fetchFeed = async (forceRefresh: boolean) => fetchCapped(feed.url, {
         headers: {
           ...(feed.etag ? { "if-none-match": feed.etag } : {}),
           ...(feed.lastModified ? { "if-modified-since": feed.lastModified } : {}),
+          ...(feed.credentialId
+            ? { authorization: await authorizationFor(this.storage, feed.credentialId, feed.url, { forceRefresh }) }
+            : {}),
         },
       });
+      let res = await fetchFeed(false);
+      // An OAuth token can be revoked or expire early; refresh once before failing.
+      if (res.status === 401 && feed.credentialId && this.storage.getCredential(feed.credentialId)?.secret.kind === "oauth2") {
+        res = await fetchFeed(true);
+      }
 
       if (res.status === 304) {
         notModified = true;
