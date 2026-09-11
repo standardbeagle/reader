@@ -131,6 +131,9 @@ export function createSqliteStorage(path: string): Storage {
       summary: promotedSummary ? null : rawSummary,
       imageUrl: includeContent ? (r.image_url as string) ?? null : null,
       categories: categoriesFromJson(r.categories),
+      media: r.media_url ? { url: r.media_url as string, type: (r.media_type as string) ?? null } : null,
+      transcript: includeContent && r.transcript_url ? { url: r.transcript_url as string, type: (r.transcript_type as string) ?? null } : null,
+      chaptersUrl: includeContent ? (r.chapters_url as string) ?? null : null,
       fetchedAt: r.fetched_at as string,
     };
   }
@@ -240,8 +243,9 @@ export function createSqliteStorage(path: string): Storage {
 
     upsertArticles(feedId, articles: ParsedArticle[], sanitize, baseUrl): Article[] {
       const insert = db.prepare(`
-        INSERT INTO articles (id, feed_id, guid, url, title, author, published_at, content_html, summary, image_url, categories, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles (id, feed_id, guid, url, title, author, published_at, content_html, summary, image_url, categories,
+                              media_url, media_type, transcript_url, transcript_type, chapters_url, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (feed_id, guid) DO NOTHING
       `);
       const updateExisting = db.prepare(`
@@ -251,6 +255,9 @@ export function createSqliteStorage(path: string): Storage {
           summary = CASE WHEN ? IS NOT NULL THEN ? ELSE summary END,
           image_url = COALESCE(?, image_url),
           categories = ?,
+          media_url = COALESCE(?, media_url), media_type = COALESCE(?, media_type),
+          transcript_url = COALESCE(?, transcript_url), transcript_type = COALESCE(?, transcript_type),
+          chapters_url = COALESCE(?, chapters_url),
           fetched_at = ?
         WHERE feed_id = ? AND guid = ?
       `);
@@ -275,11 +282,20 @@ export function createSqliteStorage(path: string): Storage {
             ?? heroFromContent(contentHtml, a.url ?? resolvedBaseUrl);
           const categories = (a.categories ?? []).slice(0, 8);
           const categoriesJson = JSON.stringify(categories);
+          const linkBase = a.url ?? resolvedBaseUrl;
+          const media = a.media ? { url: resolveHttpUrl(a.media.url, linkBase), type: a.media.type } : null;
+          const transcript = a.transcript ? { url: resolveHttpUrl(a.transcript.url, linkBase), type: a.transcript.type } : null;
+          const chaptersUrl = a.chaptersUrl ? resolveHttpUrl(a.chaptersUrl, linkBase) : null;
+          const extras = [
+            media?.url ?? null, media?.url ? media.type : null,
+            transcript?.url ?? null, transcript?.url ? transcript.type : null,
+            chaptersUrl,
+          ];
           const res = insert.run(
             id, feedId, a.guid, a.url, a.title, a.author,
             a.publishedAt ? a.publishedAt.toISOString() : null,
             contentHtml,
-            summary, imageUrl, categoriesJson, now,
+            summary, imageUrl, categoriesJson, ...extras, now,
           );
           if (res.changes > 0) {
             insertUserArticleIfNew.run(userId, id, userId, id);
@@ -287,11 +303,14 @@ export function createSqliteStorage(path: string): Storage {
               id, feedId, guid: a.guid, url: a.url, title: a.title, author: a.author,
               publishedAt: a.publishedAt ? a.publishedAt.toISOString() : null,
               contentHtml, summary, imageUrl, categories, fetchedAt: now,
+              media: media?.url ? { url: media.url, type: media.type } : null,
+              transcript: transcript?.url ? { url: transcript.url, type: transcript.type } : null,
+              chaptersUrl,
             });
           } else {
             updateExisting.run(
               a.url, a.title, a.author, a.publishedAt ? a.publishedAt.toISOString() : null,
-              contentHtml, contentHtml, summary, imageUrl, categoriesJson, now, feedId, a.guid,
+              contentHtml, contentHtml, summary, imageUrl, categoriesJson, ...extras, now, feedId, a.guid,
             );
           }
         }
@@ -332,7 +351,7 @@ export function createSqliteStorage(path: string): Storage {
       const articleColumns = includeContent
         ? "a.*"
         : `a.id, a.feed_id, a.guid, a.url, a.title, a.author, a.published_at,
-           NULL AS content_html, NULL AS summary, a.image_url, a.fetched_at`;
+           NULL AS content_html, NULL AS summary, a.image_url, a.media_url, a.media_type, a.fetched_at`;
       // Ordering must stay aligned with the keyset cursor below:
       // (published_at, id) both directions included, so no page boundary can
       // skip or repeat a row. fetched_at is deliberately not a tiebreak — it

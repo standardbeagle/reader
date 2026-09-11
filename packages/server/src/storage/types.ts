@@ -1,4 +1,4 @@
-import type { ParsedArticle } from "@reader/core";
+import type { ArticleMedia, ParsedArticle } from "@reader/core";
 
 export interface User { id: string; email: string | null; createdAt: string; }
 
@@ -64,6 +64,10 @@ export interface Article {
   imageUrl: string | null;
   /** Subject tags from the feed, stored as a JSON array column. */
   categories: string[];
+  /** Playable audio/video; present on list rows too so they can show it. */
+  media: ArticleMedia | null;
+  transcript: ArticleMedia | null;
+  chaptersUrl: string | null;
   fetchedAt: string;
 }
 
