@@ -16,7 +16,7 @@ const RSS = `<?xml version="1.0"?>
 let storage: Storage;
 let server: Server;
 let baseUrl: string;
-let state: Map<string, { xml: string; etag?: string; statusOnRequest?: number; requestCount: number }>;
+let state: Map<string, import("./fixtureServer.js").FixtureFeed>;
 
 beforeEach(async () => {
   storage = createSqliteStorage(":memory:");
@@ -128,6 +128,31 @@ describe("Poller.refreshFeed", () => {
 });
 
 describe("Poller.tick", () => {
+  it("leaves a rate-limited feed alone until its Retry-After passes", async () => {
+    state.set("/limited.xml", { xml: "", statusOnRequest: 429, headers: { "retry-after": "600" }, requestCount: 0 });
+    const { feed } = subscribe(`${baseUrl}/limited.xml`);
+    const poller = new Poller(storage);
+    const result = await poller.refreshFeed(feed.id);
+    expect(result.error).toMatch(/^HTTP 429 \(retry after /);
+    const retryAfter = Date.parse(storage.getFeed(feed.id)!.retryAfter!);
+    expect(retryAfter - Date.now()).toBeGreaterThan(590_000);
+    storage.updateFeedFetchState(feed.id, { ...storage.getFeed(feed.id)!, lastFetchedAt: "2020-01-01T00:00:00Z", errorCount: 0, status: "ok", retryAfter: new Date(retryAfter).toISOString() });
+    await poller.tick();
+    expect(state.get("/limited.xml")!.requestCount).toBe(1);
+  });
+
+  it("never shortens the interval below the publisher's ttl or max-age", async () => {
+    state.set("/ttl.xml", { xml: RSS.replace("<title>Fixture Blog</title>", "<title>Fixture Blog</title><ttl>600</ttl>"), requestCount: 0 });
+    state.set("/cached.xml", { xml: RSS, headers: { "cache-control": "max-age=7200" }, requestCount: 0 });
+    const poller = new Poller(storage);
+    const ttl = subscribe(`${baseUrl}/ttl.xml`).feed;
+    const cached = subscribe(`${baseUrl}/cached.xml`).feed;
+    await poller.refreshFeed(ttl.id);
+    await poller.refreshFeed(cached.id);
+    expect(storage.getFeed(ttl.id)!.fetchIntervalMin).toBe(600);
+    expect(storage.getFeed(cached.id)!.fetchIntervalMin).toBe(120);
+  });
+
   it("refreshes only due feeds", async () => {
     const { feed } = subscribe(`${baseUrl}/feed.xml`);
     const poller = new Poller(storage);

@@ -85,6 +85,7 @@ export function createSqliteStorage(path: string): Storage {
       errorCount: r.error_count as number,
       status: r.status as "ok" | "broken",
       credentialId: (r.credential_id as string) ?? null,
+      retryAfter: (r.retry_after as string) ?? null,
       createdAt: r.created_at as string,
     };
   }
@@ -226,13 +227,14 @@ export function createSqliteStorage(path: string): Storage {
           error_count = ?,
           status = ?,
           title = COALESCE(?, title),
-          site_url = COALESCE(?, site_url)
+          site_url = COALESCE(?, site_url),
+          retry_after = ?
         WHERE id = ?
       `).run(
         state.etag ?? null, state.lastModified ?? null, state.lastFetchedAt,
         state.lastError ?? null,
         state.fetchIntervalMin, state.errorCount, state.status,
-        state.title ?? null, state.siteUrl ?? null, id,
+        state.title ?? null, state.siteUrl ?? null, state.retryAfter ?? null, id,
       );
     },
 

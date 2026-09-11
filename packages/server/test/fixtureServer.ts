@@ -9,6 +9,8 @@ export interface FixtureFeed {
   lastModified?: string;
   statusOnRequest?: number;
   redirectTo?: string;
+  /** Extra response headers, sent with every response. */
+  headers?: Record<string, string>;
   requestCount: number;
 }
 
@@ -21,7 +23,7 @@ export async function startFixtureServer(feeds: Record<string, Omit<FixtureFeed,
     const feed = state.get(path);
     if (!feed) { res.writeHead(404).end(); return; }
     feed.requestCount++;
-    if (feed.statusOnRequest) { res.writeHead(feed.statusOnRequest).end(); return; }
+    if (feed.statusOnRequest) { res.writeHead(feed.statusOnRequest, feed.headers).end(); return; }
     if (feed.redirectTo) {
       res.writeHead(301, { location: feed.redirectTo }).end(); return;
     }
@@ -35,6 +37,7 @@ export async function startFixtureServer(feeds: Record<string, Omit<FixtureFeed,
       "content-type": feed.contentType ?? "application/rss+xml",
       ...(feed.etag ? { etag: feed.etag } : {}),
       ...(feed.lastModified ? { "last-modified": feed.lastModified } : {}),
+      ...feed.headers,
     });
     res.end(feed.rawBody ?? feed.xml);
   });

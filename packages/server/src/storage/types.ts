@@ -17,6 +17,8 @@ export interface Feed {
   status: "ok" | "broken";
   /** Credential sent with every fetch of this feed; null for public feeds. */
   credentialId: string | null;
+  /** The publisher's Retry-After: scheduled polls wait until then. */
+  retryAfter: string | null;
   createdAt: string;
 }
 
@@ -123,6 +125,8 @@ export interface FetchState {
   status: "ok" | "broken";
   title?: string;
   siteUrl?: string | null;
+  /** Replaces the stored Retry-After; null clears it. */
+  retryAfter?: string | null;
 }
 
 export interface NormalizedItem {

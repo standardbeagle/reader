@@ -1,7 +1,7 @@
 import pLimit from "p-limit";
 import { parseFeed, sanitizeHtml } from "@reader/core";
 import type { Storage } from "../storage/types.js";
-import { adaptInterval, backoffMinutes } from "./interval.js";
+import { adaptInterval, backoffMinutes, cacheControlMinutes, retryAfterTime, withPublisherFloor } from "./interval.js";
 
 import { fetchCapped } from "../fetch.js";
 import { authorizationFor } from "../auth/credentials.js";
@@ -62,6 +62,7 @@ export class Poller {
       // must not be blocked by backoff (a user retry is the reset path).
       const now = Date.now();
       const due = this.storage.dueFeeds(new Date(now)).filter((f) => {
+        if (f.retryAfter && now < Date.parse(f.retryAfter)) return false;
         if (f.status === "broken") return true;
         if (f.errorCount === 0 || !f.lastFetchedAt) return true;
         return now >= new Date(f.lastFetchedAt).getTime() + backoffMinutes(f.errorCount) * 60_000;
@@ -80,6 +81,8 @@ export class Poller {
     let etag: string | null = null;
     let lastModified: string | null = null;
     let notModified = false;
+    let retryAfter: Date | null = null;
+    let cacheFloor: number | null = null;
     try {
       const fetchFeed = async (forceRefresh: boolean) => fetchCapped(feed.url, {
         headers: {
@@ -96,9 +99,14 @@ export class Poller {
         res = await fetchFeed(true);
       }
 
+      cacheFloor = cacheControlMinutes(res.headers.get("cache-control"));
       if (res.status === 304) {
         notModified = true;
       } else {
+        if (res.status === 429 || res.status === 503) {
+          retryAfter = retryAfterTime(res.headers.get("retry-after"), Date.now());
+          throw new Error(`HTTP ${res.status}${retryAfter ? ` (retry after ${retryAfter.toISOString()})` : ""}`);
+        }
         if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
         etag = res.headers.get("etag");
         lastModified = res.headers.get("last-modified");
@@ -113,6 +121,7 @@ export class Poller {
         fetchIntervalMin: feed.fetchIntervalMin,
         errorCount,
         status: errorCount >= BROKEN_THRESHOLD ? "broken" : "ok",
+        retryAfter: retryAfter?.toISOString() ?? null,
       });
       return { newArticles: 0, error };
     }
@@ -121,7 +130,7 @@ export class Poller {
       this.storage.updateFeedFetchState(feedId, {
         lastFetchedAt: new Date().toISOString(),
         lastError: null,
-        fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, false),
+        fetchIntervalMin: withPublisherFloor(adaptInterval(feed.fetchIntervalMin, false), cacheFloor),
         errorCount: 0, status: "ok",
       });
       return { newArticles: 0, notModified: true };
@@ -137,7 +146,10 @@ export class Poller {
       lastModified,
       lastFetchedAt: new Date().toISOString(),
       lastError: null,
-      fetchIntervalMin: adaptInterval(feed.fetchIntervalMin, inserted.length > 0),
+      fetchIntervalMin: withPublisherFloor(
+        adaptInterval(feed.fetchIntervalMin, inserted.length > 0),
+        Math.max(parsed!.updateHintMinutes ?? 0, cacheFloor ?? 0) || null,
+      ),
       errorCount: 0, status: "ok",
       title: parsed!.title,
       siteUrl: parsed!.siteUrl,
