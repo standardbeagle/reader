@@ -4,13 +4,13 @@ import { api, ApiError, feedPlatform, type IngestorTestResult, type DiscoveredFe
 import { ErrorCallout } from "./ErrorCallout";
 import { FeedPicker } from "./FeedPicker";
 
-type SourceKind = "rss" | "opml" | "composite" | "mastodon" | "bluesky" | "reddit";
+type SourceKind = "rss" | "opml" | "youtube" | "composite" | "mastodon" | "bluesky" | "reddit";
 type Step = "kind" | "details" | "review";
 
 interface FormState {
   sourceUrl: string;
-  opmlText: string;
-  opmlName: string;
+  importText: string;
+  importName: string;
   name: string;
   sourceFeedIds: string[];
   instance: string;
@@ -33,8 +33,8 @@ interface FormState {
 
 const initial: FormState = {
   sourceUrl: "",
-  opmlText: "",
-  opmlName: "",
+  importText: "",
+  importName: "",
   name: "",
   sourceFeedIds: [],
   instance: "",
@@ -58,6 +58,7 @@ const initial: FormState = {
 const KIND_META: { kind: SourceKind; label: string; hint: string }[] = [
   { kind: "rss", label: "RSS / Atom feed", hint: "Follow a site or feed URL directly." },
   { kind: "opml", label: "OPML import", hint: "Move your subscriptions in from another reader." },
+  { kind: "youtube", label: "YouTube subscriptions", hint: "Follow every channel from a Google Takeout export." },
   { kind: "composite", label: "Combined AI view", hint: "Merge several RSS feeds into one source, filtered and summarized by AI." },
   { kind: "mastodon", label: "Mastodon", hint: "Follow an account, tag, or search." },
   { kind: "bluesky", label: "Bluesky", hint: "Follow an account or search." },
@@ -65,7 +66,7 @@ const KIND_META: { kind: SourceKind; label: string; hint: string }[] = [
 ];
 
 function buildConfig(kind: SourceKind, f: FormState): Record<string, unknown> {
-  if (kind === "rss") return {};
+  if (kind === "rss" || kind === "opml" || kind === "youtube") return {};
   if (kind === "composite") return { name: f.name.trim(), sourceFeedIds: f.sourceFeedIds };
   if (kind === "mastodon") return { instance: f.instance.trim(), ...(f.tag.trim() ? { tag: f.tag.trim() } : {}) };
   if (kind === "bluesky") {
@@ -87,7 +88,7 @@ function buildConfig(kind: SourceKind, f: FormState): Record<string, unknown> {
 
 function detailsComplete(kind: SourceKind, f: FormState): boolean {
   if (kind === "rss") return /^https?:\/\/.+/.test(f.sourceUrl.trim());
-  if (kind === "opml") return f.opmlText.length > 0;
+  if (kind === "opml" || kind === "youtube") return f.importText.length > 0;
   if (kind === "composite") return f.sourceFeedIds.length > 0;
   if (kind === "mastodon") return f.instance.trim().length > 0;
   if (kind === "bluesky") return f.handle.trim().length > 0 || f.search.trim().length > 0;
@@ -143,30 +144,30 @@ export function SourceWizard(props: { onClose: () => void }) {
     onSuccess: (result) => { setErrorCode(null); setTestResult(result); },
     onError: (e) => { setTestResult(null); setErrorCode(e instanceof ApiError ? e.code : "unknown"); },
   });
-  const importOpml = useMutation({
-    mutationFn: api.importOpml,
+  const importFile = useMutation({
+    mutationFn: (text: string) => kind === "youtube" ? api.importYoutubeTakeout(text) : api.importOpml(text),
     onSuccess: () => { invalidateAll(); props.onClose(); },
     onError: (e) => setErrorCode(e instanceof ApiError ? e.code : "unknown"),
   });
 
-  const pickOpmlFile = (file: File | undefined) => {
+  const pickImportFile = (file: File | undefined) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      set("opmlText", String(reader.result ?? ""));
-      set("opmlName", file.name);
+      set("importText", String(reader.result ?? ""));
+      set("importName", file.name);
     };
     reader.readAsText(file);
   };
 
   const isRss = kind === "rss";
-  const isOpml = kind === "opml";
-  // rss and opml go straight from details to done; ingestor kinds review first.
-  const isIngestor = kind !== null && !isRss && !isOpml;
+  const isImport = kind === "opml" || kind === "youtube";
+  // rss and file imports go straight from details to done; ingestor kinds review first.
+  const isIngestor = kind !== null && !isRss && !isImport;
   const config = kind ? buildConfig(kind, form) : {};
-  const busy = subscribe.isPending || createIngestor.isPending || test.isPending || importOpml.isPending;
+  const busy = subscribe.isPending || createIngestor.isPending || test.isPending || importFile.isPending;
   const stepIndex = step === "kind" ? 0 : step === "details" ? 1 : 2;
-  const stepLabel = isRss ? ["Type", "Feed URL"] : isOpml ? ["Type", "File"] : ["Type", "Source", "Options"];
+  const stepLabel = isRss ? ["Type", "Feed URL"] : isImport ? ["Type", "File"] : ["Type", "Source", "Options"];
 
   const goNext = () => {
     if (!kind) return;
@@ -228,10 +229,25 @@ export function SourceWizard(props: { onClose: () => void }) {
               type="file"
               accept=".opml,.xml,text/xml,text/x-opml"
               aria-label="OPML file"
-              onChange={(e) => pickOpmlFile(e.target.files?.[0])}
+              onChange={(e) => pickImportFile(e.target.files?.[0])}
             />
-            {form.opmlText && (
-              <p className="auth-hint">{form.opmlName} — {(form.opmlText.match(/xmlUrl/gi) ?? []).length} feeds found</p>
+            {form.importText && (
+              <p className="auth-hint">{form.importName} — {(form.importText.match(/xmlUrl/gi) ?? []).length} feeds found</p>
+            )}
+          </>
+        )}
+
+        {step === "details" && kind === "youtube" && (
+          <>
+            <p className="sub">YouTube has no feed for your subscriptions, so Reader follows each channel's own feed. Export them from Google Takeout: pick “YouTube and YouTube Music”, keep only “subscriptions”, then choose the <code>subscriptions.csv</code> inside the download.</p>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              aria-label="subscriptions.csv"
+              onChange={(e) => pickImportFile(e.target.files?.[0])}
+            />
+            {form.importText && (
+              <p className="auth-hint">{form.importName} — {(form.importText.match(/^\uFEFF?UC[A-Za-z0-9_-]{22},/gm) ?? []).length} channels found</p>
             )}
           </>
         )}
@@ -399,10 +415,10 @@ export function SourceWizard(props: { onClose: () => void }) {
               {subscribe.isPending ? "Adding…" : "Add feed"}
             </button>
           )}
-          {step === "details" && isOpml && (
-            <button className="primary" disabled={busy || !detailsComplete("opml", form)}
-              onClick={() => importOpml.mutate(form.opmlText)}>
-              {importOpml.isPending ? "Importing…" : "Import feeds"}
+          {step === "details" && isImport && (
+            <button className="primary" disabled={busy || !detailsComplete(kind!, form)}
+              onClick={() => importFile.mutate(form.importText)}>
+              {importFile.isPending ? "Importing…" : kind === "youtube" ? "Import channels" : "Import feeds"}
             </button>
           )}
           {step === "details" && isIngestor && (

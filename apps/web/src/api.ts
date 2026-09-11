@@ -38,6 +38,11 @@ export interface IngestorTestResult {
   dropped: { title: string; score: number; reason: string }[];
 }
 
+export interface ImportResult {
+  added: Feed[];
+  skipped: { title: string; url: string; reason: string }[];
+}
+
 export function feedPlatform(url: string): "mastodon" | "bluesky" | "reddit" | "composite" | null {
   const m = /^ingestor:\/\/(mastodon|bluesky|reddit|composite)\//.exec(url);
   return (m?.[1] as "mastodon" | "bluesky" | "reddit" | "composite" | undefined) ?? null;
@@ -92,7 +97,9 @@ const httpApi = {
   },
   discover: (url: string) => req<{ feeds: DiscoveredFeed[] }>("/api/v1/feeds/discover", { method: "POST", json: { url } }).then((r) => r.feeds),
   importOpml: (opml: string) =>
-    req<{ added: Feed[]; skipped: { title: string; url: string; reason: string }[] }>("/api/v1/feeds/import", { method: "POST", json: { opml } }),
+    req<ImportResult>("/api/v1/feeds/import", { method: "POST", json: { opml } }),
+  importYoutubeTakeout: (csv: string) =>
+    req<ImportResult>("/api/v1/feeds/import/youtube", { method: "POST", json: { csv } }),
   unsubscribe: (id: string) => req<void>(`/api/v1/feeds/${id}`, { method: "DELETE" }),
   listArticles: (params: { feedId?: string; listId?: string; category?: string; before?: string; beforeId?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();

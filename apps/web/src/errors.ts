@@ -87,8 +87,17 @@ const catalog: Record<string, ErrorInfo> = {
       "Open the file in a text editor — it should start with an <opml> tag",
     ],
   },
+  invalid_takeout: {
+    title: "Couldn't read that subscriptions file",
+    explanation: "Reader expects subscriptions.csv from a Google Takeout YouTube export — one channel id per row.",
+    steps: [
+      "Go to takeout.google.com, deselect all, then select “YouTube and YouTube Music”",
+      "Under “All YouTube data included”, keep only “subscriptions”, and export",
+      "Unzip the download and pick YouTube and YouTube Music/subscriptions/subscriptions.csv",
+    ],
+  },
   too_many_feeds: {
-    title: "That OPML file is too large",
+    title: "That import is too large",
     explanation: "One import can add at most 500 feeds.",
     steps: ["Split the file and import it in parts"],
   },
