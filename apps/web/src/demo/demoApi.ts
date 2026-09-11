@@ -17,6 +17,7 @@ import type {
   SavedList,
   SubscribeResult,
   Chapter,
+  Embeddability,
   Transcript,
 } from "../api";
 
@@ -25,6 +26,8 @@ interface Seed {
   articles: Article[];
   lists: SavedList[];
   listItems: string[];
+  /** Framing checks for each article's page, taken when the seed was built. */
+  embeddability?: Record<string, Embeddability>;
   /** Chapters and transcripts for the few episodes that offer them in the demo. */
   podcastExtras?: Record<string, { chapters: Chapter[] | null; transcript: Transcript | null }>;
 }
@@ -119,6 +122,8 @@ export const demoApi = {
     const transcript = seed.podcastExtras?.[id]?.transcript;
     return transcript ? Promise.resolve(transcript) : Promise.reject(new ApiError("this episode has no transcript", "not_found", 404));
   },
+  getEmbeddability: (id: string): Promise<Embeddability> =>
+    Promise.resolve(seed.embeddability?.[id] ?? { embeddable: null, reason: null }),
   getChapters: (id: string): Promise<Chapter[]> => {
     const chapters = seed.podcastExtras?.[id]?.chapters;
     return chapters ? Promise.resolve(chapters) : Promise.reject(new ApiError("this episode has no chapters", "not_found", 404));

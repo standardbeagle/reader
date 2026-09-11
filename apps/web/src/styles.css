@@ -808,3 +808,9 @@ kbd {
 .reader .episode-time { font-variant-numeric: tabular-nums; color: var(--text-dim); margin-right: var(--space-2); }
 .reader .episode-note { color: var(--text-dim); margin: var(--space-2) 0 0; }
 .episode-badge { color: var(--accent-text); margin-right: 0.35em; }
+
+/* YouTube's embed player, in the reader and the Video tab. */
+.reader .video-embed { margin: 0 0 var(--space-5); aspect-ratio: 16 / 9; max-width: 100%; }
+.reader .video-embed-short { aspect-ratio: 9 / 16; max-height: 75vh; margin-inline: auto; }
+.reader .video-embed iframe { display: block; width: 100%; height: 100%; border: 0; border-radius: var(--radius); background: #000; }
+.reader-tab[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }

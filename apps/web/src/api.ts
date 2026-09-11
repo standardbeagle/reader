@@ -36,6 +36,8 @@ export type Transcript =
   | { kind: "html"; html: string }
   | { kind: "text"; text: string };
 export interface Chapter { start: number; title: string; url: string | null; img: string | null }
+/** embeddable is null when the page could not be checked. */
+export interface Embeddability { embeddable: boolean | null; reason: string | null }
 export interface SavedList {
   id: string; title: string; visibility: "public" | "private";
   token: string; createdAt: string; itemCount: number;
@@ -143,6 +145,7 @@ const httpApi = {
   },
   getArticle: (id: string) => req<Article>(`/api/v1/articles/${encodeURIComponent(id)}`),
   getTranscript: (id: string) => req<Transcript>(`/api/v1/articles/${encodeURIComponent(id)}/transcript`),
+  getEmbeddability: (id: string) => req<Embeddability>(`/api/v1/articles/${encodeURIComponent(id)}/embeddable`),
   getChapters: (id: string) => req<{ chapters: Chapter[] }>(`/api/v1/articles/${encodeURIComponent(id)}/chapters`).then((r) => r.chapters),
   setRead: (id: string, read: boolean) =>
     req<void>(`/api/v1/articles/${id}/read`, { method: "POST", json: { read } }),
