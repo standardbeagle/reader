@@ -11,6 +11,8 @@ interface CreateBody {
 interface PatchBody {
   fetchIntervalMin?: number; digestMode?: DigestMode;
   filterThreshold?: number; llmEnabled?: boolean;
+  /** Attach (string) or detach (null) a connected account. */
+  credentialId?: string | null;
 }
 
 const KINDS = ["mastodon", "bluesky", "reddit", "composite"];
@@ -74,6 +76,16 @@ function feedUrl(kind: string, config: Record<string, unknown>): string {
     : `ingestor://bluesky/search/${config.search}`;
 }
 
+/** A connected account must exist and belong to the ingestor's platform. */
+function credentialProblem(storage: Storage, kind: string, config: Record<string, unknown>): string | null {
+  if (config.credentialId === undefined) return null;
+  if (typeof config.credentialId !== "string") return "credentialId must be a string";
+  const credential = storage.getCredential(config.credentialId);
+  if (!credential) return "credential not found";
+  if (credential.provider !== kind) return `${credential.label} is a ${credential.provider} account, not ${kind}`;
+  return null;
+}
+
 function isConstraintViolation(e: unknown): boolean {
   return typeof (e as { code?: unknown } | null)?.code === "string"
     && ((e as { code: string }).code.startsWith("SQLITE_CONSTRAINT"));
@@ -106,6 +118,8 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
       return reply.code(400).send({ error: { code: "llm_not_configured", message: "LLM filtering is on but the server has no OPENROUTER_API_KEY. Set the key or disable LLM filtering." } });
     }
     const adapter = adapters[kind as IngestorKind];
+    const problem = credentialProblem(storage, kind, config);
+    if (problem) return reply.code(422).send({ error: { code: "ingestor_invalid", message: problem } });
     let title: string;
     try {
       title = await adapter.validate(config, { storage, userId: userId() });
@@ -133,8 +147,21 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
   });
 
   app.patch<{ Params: { id: string }; Body: PatchBody }>("/api/v1/ingestors/:id", async (req, reply) => {
-    if (!storage.getIngestor(req.params.id)) {
+    const current = storage.getIngestor(req.params.id);
+    if (!current) {
       return reply.code(404).send({ error: { code: "not_found", message: "ingestor not found" } });
+    }
+    let config: Record<string, unknown> | undefined;
+    if (req.body?.credentialId !== undefined) {
+      const { credentialId: _previous, ...rest } = current.config;
+      config = req.body.credentialId === null ? rest : { ...rest, credentialId: req.body.credentialId };
+      const problem = credentialProblem(storage, current.kind, config);
+      if (problem) return reply.code(422).send({ error: { code: "ingestor_invalid", message: problem } });
+      try {
+        await adapters[current.kind].validate(config, { storage, userId: userId() });
+      } catch (e) {
+        return reply.code(422).send({ error: { code: "ingestor_invalid", message: e instanceof Error ? e.message : String(e) } });
+      }
     }
     if (req.body?.llmEnabled === true && !llmConfigured) {
       return reply.code(400).send({ error: { code: "llm_not_configured", message: "LLM filtering is on but the server has no OPENROUTER_API_KEY." } });
@@ -143,6 +170,7 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
       return reply.code(400).send({ error: { code: "invalid_ingestor", message: "digestMode must be realtime|hourly|daily" } });
     }
     const updated = storage.updateIngestor(req.params.id, {
+      ...(config ? { config } : {}),
       ...(req.body?.fetchIntervalMin ? { fetchIntervalMin: Math.max(5, Math.min(1440, req.body.fetchIntervalMin)) } : {}),
       ...(req.body?.digestMode && DIGEST_MODES.includes(req.body.digestMode) ? { digestMode: req.body.digestMode as DigestMode } : {}),
       ...(req.body?.filterThreshold !== undefined ? { filterThreshold: Math.max(0, Math.min(10, req.body.filterThreshold)) } : {}),

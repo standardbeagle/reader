@@ -236,3 +236,44 @@ describe("ingestor api", () => {
     expect(body.dropped[0].reason).toBe("test");
   });
 });
+
+describe("attaching connected accounts", () => {
+  it("attaches and detaches a Reddit account, refusing other platforms' accounts", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createSqliteStorage } = await import("../src/storage/sqlite.js");
+    const dir = mkdtempSync(join(tmpdir(), "reader-attach-"));
+    const dbPath = join(dir, "reader.db");
+    const server = await createServer({ dbPath, poller: false, ingestorAdapters: { test: fakeFetch }, llm: fakeLlm });
+    await server.ready();
+    const side = createSqliteStorage(dbPath);
+    try {
+      const uid = side.getOrCreateLocalUser().id;
+      const reddit = side.createCredential(uid, {
+        provider: "reddit", label: "u/ann", origin: "https://oauth.reddit.com",
+        secret: { kind: "oauth2", tokenUrl: "https://www.reddit.com/api/v1/access_token", clientId: "c", clientSecret: "s", accessToken: "a", refreshToken: "r", expiresAt: null },
+      });
+      const generic = side.createCredential(uid, { provider: "generic", label: "x.example", origin: "https://x.example", secret: { kind: "bearer", token: "t" } });
+      const created = await server.inject({ method: "POST", url: "/api/v1/ingestors", payload: { kind: "reddit", config: { subreddit: "test", _kind: "test" }, llmEnabled: false } });
+      const id = created.json().id;
+
+      const wrong = await server.inject({ method: "PATCH", url: `/api/v1/ingestors/${id}`, payload: { credentialId: generic.id } });
+      expect(wrong.statusCode).toBe(422);
+      expect(wrong.json().error.message).toMatch(/generic account, not reddit/);
+
+      const attached = await server.inject({ method: "PATCH", url: `/api/v1/ingestors/${id}`, payload: { credentialId: reddit.id } });
+      expect(attached.statusCode).toBe(200);
+      expect(attached.json().config).toEqual({ subreddit: "test", _kind: "test", credentialId: reddit.id });
+      const inUse = await server.inject({ method: "DELETE", url: `/api/v1/credentials/${reddit.id}` });
+      expect(inUse.statusCode).toBe(409);
+
+      const detached = await server.inject({ method: "PATCH", url: `/api/v1/ingestors/${id}`, payload: { credentialId: null } });
+      expect(detached.json().config).toEqual({ subreddit: "test", _kind: "test" });
+    } finally {
+      side.close();
+      await server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

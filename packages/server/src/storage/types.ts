@@ -156,6 +156,8 @@ export interface Ingestor {
 }
 
 export interface IngestorPatch {
+  /** Replaces the whole adapter config. */
+  config?: Record<string, unknown>;
   fetchIntervalMin?: number;
   digestMode?: DigestMode;
   filterThreshold?: number;

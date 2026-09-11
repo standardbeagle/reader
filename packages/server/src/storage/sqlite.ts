@@ -512,12 +512,14 @@ export function createSqliteStorage(path: string): Storage {
     updateIngestor(id, patch: IngestorPatch): Ingestor {
       db.prepare(`
         UPDATE ingestors SET
+          config = COALESCE(?, config),
           fetch_interval_min = COALESCE(?, fetch_interval_min),
           digest_mode = COALESCE(?, digest_mode),
           filter_threshold = COALESCE(?, filter_threshold),
           llm_enabled = COALESCE(?, llm_enabled)
         WHERE id = ?
       `).run(
+        patch.config ? JSON.stringify(patch.config) : null,
         patch.fetchIntervalMin ?? null, patch.digestMode ?? null,
         patch.filterThreshold ?? null,
         patch.llmEnabled === undefined ? null : patch.llmEnabled ? 1 : 0,
