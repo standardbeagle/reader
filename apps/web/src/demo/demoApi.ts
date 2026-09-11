@@ -16,6 +16,8 @@ import type {
   IngestorTestResult,
   SavedList,
   SubscribeResult,
+  Chapter,
+  Transcript,
 } from "../api";
 
 interface Seed {
@@ -23,6 +25,8 @@ interface Seed {
   articles: Article[];
   lists: SavedList[];
   listItems: string[];
+  /** Chapters and transcripts for the few episodes that offer them in the demo. */
+  podcastExtras?: Record<string, { chapters: Chapter[] | null; transcript: Transcript | null }>;
 }
 
 const seed = rawSeed as unknown as Seed;
@@ -111,8 +115,14 @@ export const demoApi = {
   importOpml: (_opml: string) => readOnly(),
   importYoutubeTakeout: (_csv: string) => readOnly(),
   unsubscribe: (_id: string) => readOnly(),
-  getTranscript: (_id: string) => readOnly(),
-  getChapters: (_id: string) => readOnly(),
+  getTranscript: (id: string): Promise<Transcript> => {
+    const transcript = seed.podcastExtras?.[id]?.transcript;
+    return transcript ? Promise.resolve(transcript) : Promise.reject(new ApiError("this episode has no transcript", "not_found", 404));
+  },
+  getChapters: (id: string): Promise<Chapter[]> => {
+    const chapters = seed.podcastExtras?.[id]?.chapters;
+    return chapters ? Promise.resolve(chapters) : Promise.reject(new ApiError("this episode has no chapters", "not_found", 404));
+  },
   listArticles: (params: Parameters<typeof page>[0] = {}) => Promise.resolve(page(params)),
   listCategories: (feedId?: string): Promise<CategoryCount[]> => {
     const counts = new Map<string, number>();

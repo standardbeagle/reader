@@ -1,8 +1,15 @@
-// One-off generator for apps/web/src/demo/seed.json. Reads the local dev
-// database (packages/server/reader.db), keeps the newest articles of the four
-// demo feeds, trims article bodies, and marks every third article read so the
-// demo shows a realistic unread mix. Re-run against a fresh dev DB to refresh
-// the demo content.
+// Generator for apps/web/src/demo/seed.json. Reads a reader database, keeps
+// the newest articles of the demo feeds, trims article bodies, and marks every
+// third article read so the demo shows a realistic unread mix. For the newest
+// podcast episodes it also bundles chapters and transcripts, fetched from a
+// running server so they are normalized exactly as the real API returns them.
+//
+// Usage: node scripts/build-demo-seed.mjs [dbPath] [apiBase]
+//   dbPath   defaults to packages/server/reader.db
+//   apiBase  a server running on that database, e.g. http://127.0.0.1:3799
+//            (without it, episodes ship without chapters and transcripts)
+//
+// Subscribe the server to every FEED_URLS entry first.
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
 
@@ -13,12 +20,17 @@ const FEED_URLS = [
   "https://www.nasa.gov/feeds/iotd-feed",
   "https://www.theverge.com/rss/index.xml",
   "https://hnrss.org/frontpage",
-  "https://daringfireball.net/feeds/main",
+  "https://daringfireball.net/feeds/json", // JSON Feed 1.1
+  "https://feeds.podcastindex.org/pc20.xml", // Podcasting 2.0: chapters + transcripts
+  "https://www.youtube.com/feeds/videos.xml?channel_id=UCsBjURrPoezykLs9EqgamOA", // Fireship
 ];
+const [dbPath = "packages/server/reader.db", apiBase = null] = process.argv.slice(2);
+const EPISODES_WITH_EXTRAS = 3;
+const MAX_TRANSCRIPT_CUES = 150;
 const PER_FEED = 15;
 const MAX_BODY = 1500;
 
-const db = new Database("packages/server/reader.db", { readonly: true });
+const db = new Database(dbPath, { readonly: true });
 const user = db.prepare("SELECT id FROM users LIMIT 1").get();
 
 const feeds = db.prepare(
@@ -30,6 +42,8 @@ for (const feed of feeds) {
   const rows = db.prepare(
     `SELECT a.id, a.feed_id AS feedId, a.title, a.url, a.author, a.published_at AS publishedAt,
             a.content_html AS contentHtml, a.summary, a.image_url AS imageUrl, a.categories,
+            a.media_url AS mediaUrl, a.media_type AS mediaType, a.transcript_url AS transcriptUrl,
+            a.transcript_type AS transcriptType, a.chapters_url AS chaptersUrl,
             ua.read_at AS readAt
      FROM articles a JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
      WHERE a.feed_id = ? ORDER BY a.published_at DESC LIMIT ?`,
@@ -51,6 +65,9 @@ for (const feed of feeds) {
       summary: row.summary,
       imageUrl: row.imageUrl,
       categories: JSON.parse(row.categories ?? "[]"),
+      media: row.mediaUrl ? { url: row.mediaUrl, type: row.mediaType } : null,
+      transcript: row.transcriptUrl ? { url: row.transcriptUrl, type: row.transcriptType } : null,
+      chaptersUrl: row.chaptersUrl,
       readAt: i % 3 === 2 ? new Date(Date.parse(row.publishedAt ?? "") + 3_600_000).toISOString() : null,
     });
   });
@@ -67,7 +84,28 @@ const list = {
 };
 const listItems = articles.filter((_, i) => i % 17 === 0).map((a) => a.id);
 
-const seed = { feeds, articles, lists: [list], listItems };
+// Chapters and transcripts for the newest episodes, as the server serves them.
+const podcastExtras = {};
+if (apiBase) {
+  const episodes = articles.filter((a) => a.media && (a.chaptersUrl || a.transcript)).slice(0, EPISODES_WITH_EXTRAS);
+  for (const episode of episodes) {
+    const get = async (path) => {
+      const res = await fetch(`${apiBase}/api/v1/articles/${episode.id}/${path}`);
+      if (!res.ok) throw new Error(`${path} for "${episode.title}": HTTP ${res.status}`);
+      return res.json();
+    };
+    const chapters = episode.chaptersUrl ? (await get("chapters")).chapters : null;
+    const transcript = episode.transcript ? await get("transcript") : null;
+    if (transcript?.kind === "cues") transcript.cues = transcript.cues.slice(0, MAX_TRANSCRIPT_CUES);
+    podcastExtras[episode.id] = { chapters, transcript };
+  }
+}
+// Episodes without bundled extras must not offer sections the demo cannot fill.
+for (const a of articles) {
+  if (a.media && !podcastExtras[a.id]) { a.transcript = null; a.chaptersUrl = null; }
+}
+
+const seed = { feeds, articles, lists: [list], listItems, podcastExtras };
 writeFileSync("apps/web/src/demo/seed.json", JSON.stringify(seed));
 const kb = Math.round(JSON.stringify(seed).length / 1024);
-console.log(`feeds=${feeds.length} articles=${articles.length} listItems=${listItems.length} size=${kb}KB`);
+console.log(`feeds=${feeds.length} articles=${articles.length} listItems=${listItems.length} episodesWithExtras=${Object.keys(podcastExtras).length} size=${kb}KB`);
