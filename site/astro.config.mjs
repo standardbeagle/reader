@@ -23,7 +23,9 @@ export default defineConfig({
         {
           label: "User guide",
           items: [
+            { label: "Adding sources", slug: "user/sources" },
             { label: "Reading articles", slug: "user/reading" },
+            { label: "Podcasts", slug: "user/podcasts" },
             { label: "Keyboard shortcuts", slug: "user/keyboard" },
             { label: "Saved lists", slug: "user/lists" },
             { label: "Snooze", slug: "user/snooze" },

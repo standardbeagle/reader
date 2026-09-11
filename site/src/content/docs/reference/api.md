@@ -1,6 +1,6 @@
 ---
 title: HTTP API
-description: Every /api/v1 endpoint the SPA uses — feeds, articles, lists, snooze, ingestors.
+description: Every /api/v1 endpoint the SPA uses — feeds, articles, lists, snooze, ingestors, sign-in, and real-time status.
 ---
 
 All endpoints are JSON under `/api/v1`. Errors return
@@ -68,7 +68,7 @@ Articles carry `media` (`{url, type}` of a playable enclosure) in lists too;
 | Endpoint | Description |
 | --- | --- |
 | `GET /ingestors` | All ingestors with status and pending digest counts |
-| `POST /ingestors` | Create. Body: `kind` (`mastodon` \| `bluesky` \| `reddit`), `config`, optional `fetchIntervalMin`, `digestMode` (`realtime` \| `hourly` \| `daily`), `filterThreshold`, `llmEnabled` |
+| `POST /ingestors` | Create. Body: `kind` (`mastodon` \| `bluesky` \| `reddit` \| `composite`), `config`, optional `fetchIntervalMin`, `digestMode` (`realtime` \| `hourly` \| `daily`), `filterThreshold`, `llmEnabled` |
 | `PATCH /ingestors/:id` | Update interval, digest mode, threshold, LLM flag. `credentialId` attaches a connected account of the ingestor's platform; `null` detaches it |
 | `DELETE /ingestors/:id` | Remove the ingestor |
 | `POST /ingestors/test` | Run one fetch cycle; returns kept and dropped statuses with scores |

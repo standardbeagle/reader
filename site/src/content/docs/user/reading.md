@@ -11,6 +11,7 @@ be resized by dragging its edge.
 ## The article list
 
 - Articles group by publication day — Today, Yesterday, then dated headers.
+- Podcast episodes carry a **♪** (audio) or **▶** (video) mark.
 - Opening an article (click, or `j`/`k` navigation) marks it read immediately.
 - Infinite scroll loads the next page before you reach the bottom; a
   **Load more** button covers keyboard and reduced-motion cases.
@@ -33,6 +34,8 @@ filter. Chips are per-feed — saved lists have their own membership instead.
 - The article list toggles between the dense list and an image-led pinboard
   (card grid); the choice persists.
 - The article title links to the original URL in a new tab.
+- Podcast episodes get a player with chapters and a transcript above the
+  show notes; see [Podcasts](/reader/user/podcasts/).
 
 ## Mobile
 

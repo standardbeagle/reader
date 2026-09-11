@@ -39,16 +39,19 @@ pnpm --filter @reader/desktop dev
 pnpm -r test
 ```
 
-Tests cover the core parser and sanitizer, the server API (including snooze
-and lists), and the web app's URL, error, and grouping logic. Live API tests
-for platform ingestors (Bluesky, Reddit) run against the real services and
-are skipped when credentials are absent.
+Tests cover the core parsers (RSS, Atom, JSON Feed, h-feed, transcripts) and
+the sanitizer; the server API, OAuth flows and real-time streams, against
+local fake servers; and the web app's URL, error, and grouping logic. No test
+needs network access or platform credentials.
 
 ## Subscribe to something
 
-Click **+ Add source** in the sidebar and paste any RSS/Atom URL — the server
-auto-discovers feeds behind common blog URLs. Articles appear within seconds
-of the initial fetch.
+Click **+ Add source** in the sidebar and paste a feed or a site's home page.
+The server finds the site's RSS, Atom or JSON feed, or reads the page itself
+when it is an IndieWeb h-feed. Articles appear within seconds of the first
+fetch, and feeds that page their history fill in older items after that.
+Private feeds take a username and password, a token, or an OAuth sign-in in
+the same step. [Adding sources](/reader/user/sources/) covers the details.
 
 ## Move your subscriptions in
 
@@ -56,6 +59,10 @@ of the initial fetch.
 reader (Feedly, Inoreader, FreshRSS, …) and subscribes to every feed in it at
 once. Feeds you already follow are skipped; the first fetch runs in the
 background, so large imports fill in over the next minutes.
+
+**+ Add source → YouTube subscriptions** does the same for YouTube, which has
+no subscriptions feed of its own: give it the `subscriptions.csv` from a
+Google Takeout export and it follows each channel's feed.
 
 ## Try the demo
 

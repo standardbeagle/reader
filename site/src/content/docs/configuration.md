@@ -44,9 +44,8 @@ there. There is one exception: a Mastodon token may also go to that
 instance's streaming host, if it is the same host or a subdomain of it (such
 as `streaming.mastodon.social`). An OAuth refresh token and client secret go
 only to the provider's token endpoint. Redirects to another host drop the
-sign-in. Secrets are stored
-in plaintext in the SQLite file, so protect it like the `env` file. API
-responses never include them.
+sign-in. Secrets are stored in plaintext in the SQLite file, so protect it
+like the `env` file. API responses never include them.
 
 Bluesky still reads its app password from the ingestor config or the
 environment:

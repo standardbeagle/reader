@@ -1,9 +1,9 @@
 ---
 title: reader
-description: A Google Reader clone for the agent era — RSS/Atom reading as an Electron desktop app or a hosted web service from one TypeScript codebase.
+description: A Google Reader clone for the agent era — RSS, Atom, JSON Feed and podcasts as an Electron desktop app or a hosted web service from one TypeScript codebase.
 template: splash
 hero:
-  tagline: A Google Reader clone for the agent era. RSS/Atom reading as an Electron desktop app or a hosted web service, from one TypeScript codebase.
+  tagline: A Google Reader clone for the agent era. RSS, Atom, JSON Feed and podcasts as an Electron desktop app or a hosted web service, from one TypeScript codebase.
   image:
     file: ../../assets/screenshots/desktop-reader.png
     alt: reader's three-pane layout — feeds, article list, and an open article with previous/next navigation
@@ -25,10 +25,17 @@ digests tomorrow.
 
 ## What you get
 
-- **Feed reading** — RSS 2.0 / Atom subscriptions, background polling with
-  conditional GET (etag / last-modified), adaptive refresh intervals, and
-  exponential backoff on failures.
-- **OPML import** — move your subscriptions in from any other reader in one go.
+- **Feed reading** — RSS, Atom, JSON Feed, and IndieWeb h-feed pages.
+  Background polling uses conditional GET, adapts its interval to how often a
+  feed changes, and honors the publisher's `ttl`, `Cache-Control` and
+  `Retry-After`. New subscriptions fill in older history when the feed pages
+  it.
+- **Private feeds** — sign in with a username and password, an access token,
+  or OAuth 2.0. A sign-in is only ever sent to the host it belongs to.
+- **Imports** — OPML from any other reader, or your YouTube subscriptions from
+  a Google Takeout export.
+- **Podcasts** — play episodes in the reader, jump by chapter or transcript
+  line, and get new episodes as soon as the host announces them on Podping.
 - **Classic three-pane UI** — feeds · article list · article view, with a
   mobile layout, swipe navigation, and installable PWA support.
 - **Pinboard view** — an image-led card grid for the article list, one click
@@ -41,15 +48,17 @@ digests tomorrow.
   stays unread and resurfaces when the snooze expires.
 - **Saved lists** — permanent article collections, private or public; every
   public list is itself an RSS feed at `/lists/<token>.xml`.
-- **Ingestors** — pull Mastodon, Bluesky, or Reddit timelines in as feeds, or
-  merge several feeds into one AI-filtered, summarized view — with digest
-  modes and an LLM keep/drop threshold.
+- **Ingestors** — pull Mastodon (including your home timeline), Bluesky, or
+  Reddit in as feeds, or merge several feeds into one AI-filtered, summarized
+  view, with digest modes and an LLM keep/drop threshold. Mastodon and Reddit
+  sign in through OAuth; Mastodon and Bluesky posts arrive in real time.
 - **XSS-safe rendering** — every article body is sanitized server-side with
   DOMPurify.
 - **Local-first** — embedded SQLite, no account needed; the hosted mode shares
   the same codebase.
 - **Loopback-only by default** — the server binds 127.0.0.1; wider exposure is
-  a deliberate opt-in.
+  a deliberate opt-in. Sign-ins and real-time streams only ever connect out,
+  so none of them needs a public address.
 
 ## See it
 
@@ -60,6 +69,7 @@ digests tomorrow.
 ## Where to go next
 
 - [Quick start](/reader/getting-started/) — run the web app or the desktop app.
+- [Adding sources](/reader/user/sources/) — formats, private feeds, OPML and YouTube imports.
 - [User guide](/reader/user/reading/) — the three-pane UI, filters, and navigation.
 - [Hosting](/reader/hosting/) — systemd, Cloudflare tunnel, and the production layout.
 - [Configuration](/reader/configuration/) — environment variables and secrets.

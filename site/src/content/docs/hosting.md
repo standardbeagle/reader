@@ -34,26 +34,45 @@ Cloudflare Access policy **is** the authorization control.
 
 Cloudflare Access answers `302` at the edge for **any** request, tunnel
 healthy or not — a `302` proves DNS and Access, and nothing about the app.
-Verify all three:
+Check the pieces on the host instead:
 
 ```bash
-systemctl --user status cloudflared-reader        # tunnel unit up
-# …and "Registered tunnel connection" lines in its journal
-curl -s http://127.0.0.1:3737/api/v1/health       # on the host: {"ok":true}
+systemctl --user is-active reader cloudflared-reader   # both "active"
+curl -s http://127.0.0.1:3737/api/v1/health            # {"ok":true}
+# cloudflared's metrics listener reports live edge connections:
+ss -ltnp | grep cloudflared                            # find its 127.0.0.1 port
+curl -s http://127.0.0.1:<port>/ready                  # {"status":200,"readyConnections":4,…}
+curl -s http://127.0.0.1:3737/api/v1/realtime          # outbound stream state
 ```
+
+The user journal can be empty for a long-running tunnel, so its
+"Registered tunnel connection" lines are not a reliable check.
 
 End-to-end through Access additionally needs a service token or an
 authenticated browser.
 
 ## Updating
 
+Deploys come from `main` only. Back up the database first when the update
+carries migrations; they run on the next start and some rewrite data.
+
 ```bash
 cd ~/work/experimental/reader
-git pull
-pnpm install
+systemctl --user stop reader
+sqlite3 ~/.local/share/reader/reader.db ".backup $HOME/.local/share/reader/reader.db.pre-deploy-$(date +%Y%m%d-%H%M%S)"
+git pull --ff-only
+pnpm install --frozen-lockfile
 pnpm -r build
-systemctl --user restart reader
+systemctl --user start reader
 ```
+
+## Outbound connections
+
+The app makes only outbound connections: feed fetches, OAuth token
+exchanges, and, while subscriptions need them, WebSockets to a Podping relay,
+Bluesky Jetstream and Mastodon streaming servers. OAuth sign-in redirects go
+through the user's browser, so none of this changes the table above. Each
+stream can be switched off; see [Configuration](/reader/configuration/).
 
 The docs site (`site/`) is excluded from the pnpm workspace; GitHub Actions
 builds and deploys it to Pages on push.
