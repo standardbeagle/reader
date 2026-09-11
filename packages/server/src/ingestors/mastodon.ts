@@ -19,9 +19,11 @@ export const mastodonAdapter: IngestorAdapter = {
     return `Mastodon ${label}@${config.instance}`;
   },
   async fetch(config, cursor) {
-    const maxId = cursor?.maxId as string | undefined;
+    // min_id returns the page immediately newer than the newest status already
+    // seen, so a backlog drains forward 40 at a time with no gap.
+    const minId = cursor?.minId as string | undefined;
     const params = new URLSearchParams({ limit: "40" });
-    if (maxId) params.set("max_id", maxId);
+    if (minId) params.set("min_id", minId);
     const path = config.tag
       ? `/api/v1/timelines/tag/${encodeURIComponent(String(config.tag))}`
       : `/api/v1/accounts/${encodeURIComponent(String(config.account))}/statuses`;
@@ -36,7 +38,11 @@ export const mastodonAdapter: IngestorAdapter = {
       url: (s.url as string) ?? null,
       publishedAt: (s.created_at as string) ?? null,
     }));
-    const last = statuses[statuses.length - 1];
-    return { items, cursor: { maxId: last ? String(last.id) : maxId ?? null } };
+    // Status ids are numeric strings of varying length; compare as BigInt.
+    const newest = statuses.reduce<string | null>(
+      (max, s) => (max === null || BigInt(String(s.id)) > BigInt(max) ? String(s.id) : max),
+      minId ?? null,
+    );
+    return { items, cursor: { minId: newest } };
   },
 };

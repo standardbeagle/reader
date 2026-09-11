@@ -35,22 +35,27 @@ describe("mastodon adapter", () => {
     { id: "101", created_at: "2026-07-01T12:00:00Z", url: "https://mastodon.social/@a/101", content: "<p>Hello <b>world</b></p>", account: { acct: "alice@mastodon.social" } },
     { id: "100", created_at: "2026-06-30T12:00:00Z", url: "https://mastodon.social/@a/100", content: "<p>Earlier</p>", account: { acct: "alice@mastodon.social" } },
   ];
-  it("fetches a tag timeline, strips html, cursors by max_id", async () => {
-    let sawMaxId: string | null = null;
+  it("fetches a tag timeline, strips html, and cursors forward by min_id", async () => {
+    let sawMinId: string | null = null;
+    let page: typeof timeline = timeline;
     handler = (u) => {
       if (u.pathname !== "/api/v1/timelines/tag/ai") return null;
-      sawMaxId = u.searchParams.get("max_id");
-      return timeline;
+      sawMinId = u.searchParams.get("min_id");
+      return page;
     };
     const cfg = { instance: new URL(baseUrl).host, tag: "ai", _baseUrl: baseUrl };
     const first = await mastodonAdapter.fetch(cfg, null, testCtx);
+    expect(sawMinId).toBeNull();
     expect(first.items).toHaveLength(2);
     expect(first.items[0]!.text).toBe("Hello world");
     expect(first.items[0]!.author).toBe("alice@mastodon.social");
-    expect(first.cursor).toEqual({ maxId: "100" });
+    expect(first.cursor).toEqual({ minId: "101" });
+    page = [{ ...timeline[0]!, id: "1000" }];
     const second = await mastodonAdapter.fetch(cfg, first.cursor, testCtx);
-    expect(sawMaxId).toBe("100");
-    expect(second.items[0]!.externalId).toBe("101");
+    expect(sawMinId).toBe("101");
+    expect(second.cursor).toEqual({ minId: "1000" });
+    page = [];
+    expect((await mastodonAdapter.fetch(cfg, second.cursor, testCtx)).cursor).toEqual({ minId: "1000" });
   });
 });
 
