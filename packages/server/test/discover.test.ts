@@ -32,6 +32,16 @@ describe("discoverFeeds", () => {
     expect(found).toEqual([{ url: `${baseUrl}/feed.xml`, title: "Site Feed", kind: "rss" }]);
   });
 
+  it("verifies a linked JSON Feed and reports its kind", async () => {
+    const json = JSON.stringify({ version: "https://jsonfeed.org/version/1.1", title: "JSON One", items: [{ id: "1", content_text: "hi" }] });
+    await start({
+      "/": { body: `<html><head><link rel="alternate" type="application/feed+json" title="JSON" href="/feed.json"></head></html>` },
+      "/feed.json": { contentType: "application/feed+json", body: json },
+    });
+    const found = await discoverFeeds(baseUrl + "/");
+    expect(found).toContainEqual({ url: `${baseUrl}/feed.json`, title: "JSON One", kind: "json" });
+  });
+
   it("extracts link rel=alternate tags, resolving relative hrefs", async () => {
     const html = `<html><head>
       <link rel="alternate" type="application/rss+xml" title="Main RSS" href="/feed.xml">

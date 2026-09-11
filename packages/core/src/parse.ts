@@ -2,6 +2,8 @@ import Parser from "rss-parser";
 import { createHash } from "node:crypto";
 import type { ParsedFeed, ParsedArticle } from "./types.js";
 import { looksLikeHtml } from "./content.js";
+import { limitCategories } from "./categories.js";
+import { parseJsonFeed } from "./json-feed.js";
 
 const parser = new Parser({
   customFields: {
@@ -52,26 +54,16 @@ function mediaDescription(item: Record<string, unknown>): string | null {
 }
 
 // RSS <category> maps to strings; Atom <category term="x"> maps to objects.
-const MAX_CATEGORIES = 8;
-const MAX_CATEGORY_LEN = 40;
-
 function articleCategories(item: Record<string, unknown>): string[] {
   const raw = item.categories ?? item.category;
   const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
-  const out = new Set<string>();
-  for (const value of values) {
-    let name: string | null = null;
-    if (typeof value === "string") name = value;
-    else if (value && typeof value === "object") {
-      const attributes = (value as Record<string, unknown>).$ as Record<string, unknown> | undefined;
-      const term = (attributes?.term ?? attributes?.label ?? (value as Record<string, unknown>).term) as unknown;
-      if (typeof term === "string") name = term;
-    }
-    const trimmed = name?.trim().slice(0, MAX_CATEGORY_LEN);
-    if (trimmed) out.add(trimmed);
-    if (out.size >= MAX_CATEGORIES) break;
-  }
-  return [...out];
+  return limitCategories(values.map((value) => {
+    if (typeof value === "string") return value;
+    if (!value || typeof value !== "object") return null;
+    const attributes = (value as Record<string, unknown>).$ as Record<string, unknown> | undefined;
+    const term = (attributes?.term ?? attributes?.label ?? (value as Record<string, unknown>).term) as unknown;
+    return typeof term === "string" ? term : null;
+  }));
 }
 
 // The transitive XML stack does not expand custom entities today, but a DOCTYPE
@@ -83,6 +75,9 @@ const DOCTYPE_SUBSET = /<!DOCTYPE[^>[]*\[/i;
 
 export async function parseFeed(xml: string): Promise<ParsedFeed> {
   if (xml.length > MAX_FEED_CHARS) throw new Error("feed too large to parse");
+  // JSON Feed documents are objects; nothing XML-shaped starts with "{".
+  const body = xml.replace(/^\uFEFF/, "").trimStart();
+  if (body.startsWith("{")) return parseJsonFeed(body);
   if (DOCTYPE_SUBSET.test(xml)) throw new Error("feed contains a DOCTYPE internal subset");
   const raw = await parser.parseString(xml);
   const articles: ParsedArticle[] = (raw.items ?? []).map((item) => {

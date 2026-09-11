@@ -5,6 +5,10 @@ description: Notable changes to reader, newest first.
 
 ## Unreleased
 
+- **JSON Feed** — feeds published as [JSON Feed](https://jsonfeed.org) 1.0
+  or 1.1 now subscribe and refresh like RSS and Atom. Discovery listed them
+  before but could not read them. Untitled microblog posts take their title
+  from the start of the text.
 - **YouTube subscriptions import** — **+ Add source → YouTube subscriptions**
   reads Google Takeout's `subscriptions.csv` and follows each channel's feed.
   YouTube has no feed for your subscriptions as a whole. Videos now show their
