@@ -64,6 +64,7 @@ function feedUrl(kind: string, config: Record<string, unknown>): string {
   }
   if (kind === "reddit") return `ingestor://reddit/r/${config.subreddit}`;
   if (kind === "mastodon") {
+    if (config.timeline === "home") return `ingestor://mastodon/${config.instance}/home`;
     return config.tag
       ? `ingestor://mastodon/${config.instance}/tag/${config.tag}`
       : `ingestor://mastodon/${config.instance}/acct/${config.account}`;
@@ -107,7 +108,7 @@ export function registerIngestorRoutes(app: FastifyInstance, storage: Storage, e
     const adapter = adapters[kind as IngestorKind];
     let title: string;
     try {
-      title = await adapter.validate(config);
+      title = await adapter.validate(config, { storage, userId: userId() });
     } catch (e) {
       return reply.code(422).send({ error: { code: "ingestor_invalid", message: e instanceof Error ? e.message : String(e) } });
     }

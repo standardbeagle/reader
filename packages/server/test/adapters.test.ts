@@ -4,11 +4,13 @@ import type { AddressInfo } from "node:net";
 import { mastodonAdapter } from "../src/ingestors/mastodon.js";
 import { blueskyAdapter } from "../src/ingestors/bluesky.js";
 import { redditAdapter } from "../src/ingestors/reddit.js";
+import { createSqliteStorage } from "../src/storage/sqlite.js";
 const testCtx: import("../src/ingestors/types.js").AdapterContext = { storage: {} as never, userId: "u1" };
 
 type Handler = (u: URL) => unknown;
 
 let handler: Handler = () => null;
+let lastAuth: string | undefined;
 let server: Server;
 let baseUrl: string;
 
@@ -16,6 +18,7 @@ beforeEach(async () => {
   handler = () => null;
   server = createServer((req, res) => {
     const u = new URL(req.url ?? "/", "http://x");
+    lastAuth = req.headers.authorization;
     const out = handler(u);
     if (out === null || out === undefined) { res.writeHead(404).end(); return; }
     res.writeHead(200, { "content-type": "application/json" });
@@ -56,6 +59,29 @@ describe("mastodon adapter", () => {
     expect(second.cursor).toEqual({ minId: "1000" });
     page = [];
     expect((await mastodonAdapter.fetch(cfg, second.cursor, testCtx)).cursor).toEqual({ minId: "1000" });
+  });
+});
+
+describe("mastodon adapter with a connected account", () => {
+  it("reads the home timeline signed with the account token", async () => {
+    const storage = createSqliteStorage(":memory:");
+    const userId = storage.getOrCreateLocalUser().id;
+    const cred = storage.createCredential(userId, {
+      provider: "mastodon", label: "@ann@example", origin: baseUrl,
+      secret: { kind: "oauth2", tokenUrl: `${baseUrl}/oauth/token`, clientId: "c", clientSecret: "s", accessToken: "home-token", refreshToken: null, expiresAt: null },
+    });
+    const ctx = { storage, userId };
+    serveRoutes({
+      "/api/v1/accounts/verify_credentials": { acct: "ann" },
+      "/api/v1/timelines/home": [{ id: "7", created_at: "2026-07-01T12:00:00Z", url: "https://example/@b/7", content: "<p>hi</p>", account: { acct: "bob" } }],
+    });
+    const cfg = { instance: new URL(baseUrl).host, timeline: "home", credentialId: cred.id, _baseUrl: baseUrl };
+    expect(await mastodonAdapter.validate(cfg, ctx)).toBe(`Mastodon home @ann@${new URL(baseUrl).host}`);
+    const result = await mastodonAdapter.fetch(cfg, null, ctx);
+    expect(lastAuth).toBe("Bearer home-token");
+    expect(result.items.map((i) => i.author)).toEqual(["bob"]);
+    await expect(mastodonAdapter.validate({ instance: "x", timeline: "home" }, ctx)).rejects.toThrow(/connected Mastodon account/);
+    storage.close();
   });
 });
 

@@ -12,6 +12,6 @@ export interface AdapterContext {
 }
 
 export interface IngestorAdapter {
-  validate(config: Record<string, unknown>): Promise<string>;
+  validate(config: Record<string, unknown>, ctx: AdapterContext): Promise<string>;
   fetch(config: Record<string, unknown>, cursor: Record<string, unknown> | null, ctx: AdapterContext): Promise<AdapterResult>;
 }

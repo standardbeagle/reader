@@ -41,9 +41,9 @@ function makeComposite(feedIds: string[], name: string) {
 
 describe("compositeAdapter", () => {
   it("rejects empty source list on validate", async () => {
-    await expect(compositeAdapter.validate({})).rejects.toThrow(/sourceFeedIds/);
-    await expect(compositeAdapter.validate({ sourceFeedIds: ["f1"] })).resolves.toBe("Combined feeds");
-    await expect(compositeAdapter.validate({ sourceFeedIds: ["f1"], name: "Tech" })).resolves.toBe("Tech");
+    await expect(compositeAdapter.validate({}, { storage, userId })).rejects.toThrow(/sourceFeedIds/);
+    await expect(compositeAdapter.validate({ sourceFeedIds: ["f1"] }, { storage, userId })).resolves.toBe("Combined feeds");
+    await expect(compositeAdapter.validate({ sourceFeedIds: ["f1"], name: "Tech" }, { storage, userId })).resolves.toBe("Tech");
   });
 
   it("is registered for the composite kind", () => {
