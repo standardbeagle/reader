@@ -1,6 +1,6 @@
 import pLimit from "p-limit";
 import { parseFeed, sanitizeHtml } from "@reader/core";
-import type { Storage } from "../storage/types.js";
+import type { Feed, Storage } from "../storage/types.js";
 import { adaptInterval, backoffMinutes, cacheControlMinutes, retryAfterTime, withPublisherFloor } from "./interval.js";
 
 import { fetchCapped } from "../fetch.js";
@@ -12,9 +12,30 @@ export interface RefreshResult {
   newArticles: number;
   notModified?: boolean;
   error?: string;
+  /** Absolute URL where older items continue, when the feed pages or archives them. */
+  olderUrl?: string;
 }
 
+export interface BackfillResult {
+  pages: number;
+  newArticles: number;
+  error?: string;
+}
+
+/** History pages fetched per backfill; archives can run to hundreds of documents. */
+const MAX_BACKFILL_PAGES = 10;
+
 const BROKEN_THRESHOLD = 10;
+
+function resolveHttp(href: string | null | undefined, base: string): string | null {
+  if (!href) return null;
+  try {
+    const url = new URL(href, base);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 const STARTUP_DELAY_MS = 5_000;
 
 export class Poller {
@@ -83,21 +104,13 @@ export class Poller {
     let notModified = false;
     let retryAfter: Date | null = null;
     let cacheFloor: number | null = null;
+    let finalUrl = feed.url;
     try {
-      const fetchFeed = async (forceRefresh: boolean) => fetchCapped(feed.url, {
-        headers: {
-          ...(feed.etag ? { "if-none-match": feed.etag } : {}),
-          ...(feed.lastModified ? { "if-modified-since": feed.lastModified } : {}),
-          ...(feed.credentialId
-            ? { authorization: await authorizationFor(this.storage, feed.credentialId, feed.url, { forceRefresh }) }
-            : {}),
-        },
+      const res = await this.fetchDocument(feed, feed.url, {
+        ...(feed.etag ? { "if-none-match": feed.etag } : {}),
+        ...(feed.lastModified ? { "if-modified-since": feed.lastModified } : {}),
       });
-      let res = await fetchFeed(false);
-      // An OAuth token can be revoked or expire early; refresh once before failing.
-      if (res.status === 401 && feed.credentialId && this.storage.getCredential(feed.credentialId)?.secret.kind === "oauth2") {
-        res = await fetchFeed(true);
-      }
+      finalUrl = res.finalUrl;
 
       cacheFloor = cacheControlMinutes(res.headers.get("cache-control"));
       if (res.status === 304) {
@@ -154,6 +167,56 @@ export class Poller {
       title: parsed!.title,
       siteUrl: parsed!.siteUrl,
     });
-    return { newArticles: inserted.length };
+    const olderUrl = resolveHttp(parsed!.olderUrl, finalUrl);
+    return { newArticles: inserted.length, ...(olderUrl ? { olderUrl } : {}) };
+  }
+
+  /** GET a document for `feed`, signed with its credential; an OAuth 401 gets one forced token refresh. */
+  private async fetchDocument(feed: Feed, url: string, headers: Record<string, string>) {
+    const fetchOnce = async (forceRefresh: boolean) => fetchCapped(url, {
+      headers: {
+        ...headers,
+        ...(feed.credentialId
+          ? { authorization: await authorizationFor(this.storage, feed.credentialId, url, { forceRefresh }) }
+          : {}),
+      },
+    });
+    const res = await fetchOnce(false);
+    // An OAuth token can be revoked or expire early; refresh once before failing.
+    if (res.status === 401 && feed.credentialId && this.storage.getCredential(feed.credentialId)?.secret.kind === "oauth2") {
+      return fetchOnce(true);
+    }
+    return res;
+  }
+
+  /**
+   * Walk a feed's history (RFC 5005 paging/archives, JSON Feed next_url)
+   * from `olderUrl`, storing each page's items as already read: they are
+   * history, not news, and would otherwise bury the current unread list.
+   * Stops at the page cap, a repeated URL, or the first failure.
+   */
+  async backfillFeed(feedId: string, olderUrl: string, maxPages = MAX_BACKFILL_PAGES): Promise<BackfillResult> {
+    const feed = this.storage.getFeed(feedId);
+    if (!feed) return { pages: 0, newArticles: 0, error: "feed not found" };
+    const visited = new Set([feed.url]);
+    let next: string | null = olderUrl;
+    let pages = 0;
+    let newArticles = 0;
+    try {
+      while (next && pages < maxPages && !visited.has(next)) {
+        visited.add(next);
+        const res = await this.fetchDocument(feed, next, {});
+        if (res.status !== 200) throw new Error(`HTTP ${res.status} from ${next}`);
+        const page = await parseFeed(res.body);
+        const inserted = this.storage.upsertArticles(feed.id, page.articles, sanitizeHtml, page.siteUrl ?? feed.siteUrl ?? feed.url);
+        for (const article of inserted) this.storage.setRead(feed.userId, article.id, true);
+        pages++;
+        newArticles += inserted.length;
+        next = resolveHttp(page.olderUrl, res.finalUrl);
+      }
+    } catch (e) {
+      return { pages, newArticles, error: e instanceof Error ? e.message : String(e) };
+    }
+    return { pages, newArticles };
   }
 }

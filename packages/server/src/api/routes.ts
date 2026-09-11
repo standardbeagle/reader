@@ -17,6 +17,15 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
 
   app.get("/api/v1/health", async () => ({ ok: true }));
 
+  // History arrives after the subscribe response; the feed is usable at once.
+  const backfillInBackground = (feedId: string, olderUrl: string | undefined) => {
+    if (!olderUrl) return;
+    void poller.backfillFeed(feedId, olderUrl).then((r) => {
+      if (r.error) app.log.warn({ feedId, pages: r.pages, error: r.error }, "feed backfill stopped early");
+      else app.log.info({ feedId, pages: r.pages, newArticles: r.newArticles }, "feed backfilled");
+    });
+  };
+
   app.post<{ Params: { id: string } }>("/api/v1/feeds/:id/refresh", async (req, reply) => {
     const feed = storage.getFeed(req.params.id);
     if (!feed) {
@@ -93,6 +102,7 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
       storage.deleteFeed(feed.id);
       return reply.code(422).send({ error: { code: "feed_fetch_failed", message: result.error } });
     }
+    backfillInBackground(feed.id, result.olderUrl);
     return reply.code(201).send(storage.getFeed(feed.id));
   });
 
@@ -112,6 +122,7 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
       storage.deleteFeed(feed.id);
       return reply.code(422).send({ error: { code: "feed_fetch_failed", message: result.error } });
     }
+    backfillInBackground(feed.id, result.olderUrl);
     return reply.code(201).send(storage.getFeed(feed.id));
   };
 
@@ -139,7 +150,8 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     const queue = [...added];
     const workers = Array.from({ length: IMPORT_CONCURRENCY }, async () => {
       for (let feed; (feed = queue.shift()); ) {
-        await poller.refreshFeed(feed.id).catch(() => { /* failure shows as broken feed status */ });
+        const result = await poller.refreshFeed(feed.id).catch(() => null); // failure shows as broken feed status
+        if (result?.olderUrl) await poller.backfillFeed(feed.id, result.olderUrl).catch(() => null);
       }
     });
     void Promise.all(workers).catch(() => {});

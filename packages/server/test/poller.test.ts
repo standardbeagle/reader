@@ -153,6 +153,30 @@ describe("Poller.tick", () => {
     expect(storage.getFeed(cached.id)!.fetchIntervalMin).toBe(120);
   });
 
+  it("backfills paged history as read, stopping at loops and the page cap", async () => {
+    const page = (title: string, guid: string, next: string | null) => `<?xml version="1.0"?>
+      <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Paged</title><link>https://paged.example/</link>
+      ${next ? `<atom:link rel="next" href="${next}"/>` : ""}
+      <item><title>${title}</title><guid>${guid}</guid></item></channel></rss>`;
+    state.set("/paged.xml", { xml: page("Newest", "n1", "/paged.xml?page=2"), requestCount: 0 });
+    state.set("/paged.xml?page=2", { xml: page("Older", "o2", "/paged.xml?page=3"), requestCount: 0 });
+    state.set("/paged.xml?page=3", { xml: page("Oldest", "o3", "/paged.xml"), requestCount: 0 });
+    const { user, feed } = subscribe(`${baseUrl}/paged.xml`);
+    const poller = new Poller(storage);
+    const first = await poller.refreshFeed(feed.id);
+    expect(first.olderUrl).toBe(`${baseUrl}/paged.xml?page=2`);
+
+    const result = await poller.backfillFeed(feed.id, first.olderUrl!);
+    expect(result).toEqual({ pages: 2, newArticles: 2 });
+    const articles = storage.listArticles({ userId: user.id, limit: 10 });
+    expect(articles.map((a) => a.title).sort()).toEqual(["Newest", "Older", "Oldest"]);
+    expect(articles.filter((a) => a.readAt === null).map((a) => a.title)).toEqual(["Newest"]);
+    expect(state.get("/paged.xml")!.requestCount).toBe(1); // the loop back to the feed was not followed
+
+    const capped = await poller.backfillFeed(feed.id, first.olderUrl!, 1);
+    expect(capped).toEqual({ pages: 1, newArticles: 0 });
+  });
+
   it("refreshes only due feeds", async () => {
     const { feed } = subscribe(`${baseUrl}/feed.xml`);
     const poller = new Poller(storage);
