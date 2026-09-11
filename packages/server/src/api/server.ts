@@ -4,6 +4,7 @@ import { Poller } from "../poller/poller.js";
 import { registerRoutes } from "./routes.js";
 import { registerIngestorRoutes } from "./routes-ingestors.js";
 import { registerListRoutes } from "./routes-lists.js";
+import { registerAuthRoutes } from "./routes-auth.js";
 import { IngestorEngine, type FetchFn } from "../ingestors/engine.js";
 import { createOpenRouterClient, type LlmClient } from "../llm/client.js";
 
@@ -75,6 +76,7 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   registerRoutes(app, storage, poller);
   registerIngestorRoutes(app, storage, engine, llm !== null);
   registerListRoutes(app, storage);
+  registerAuthRoutes(app, storage);
   const webDist = process.env.READER_WEB_DIST;
   if (webDist) {
     const { default: fastifyStatic } = await import("@fastify/static");
