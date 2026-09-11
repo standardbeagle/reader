@@ -2,7 +2,22 @@ export interface Feed {
   id: string; url: string; title: string; siteUrl: string | null;
   unreadCount: number; status: "ok" | "broken";
   lastFetchedAt: string | null; lastError: string | null; errorCount: number;
+  credentialId?: string | null;
 }
+/** A connected account or feed sign-in. The secret never leaves the server. */
+export interface Credential {
+  id: string;
+  provider: "generic" | "mastodon" | "reddit";
+  kind: "basic" | "bearer" | "oauth2";
+  label: string;
+  origin: string;
+  createdAt: string;
+  usedBy: number;
+}
+export type OAuthStart =
+  | { provider: "mastodon"; instance: string }
+  | { provider: "reddit"; clientId: string; clientSecret: string }
+  | { provider: "generic"; feedUrl: string; authorizeUrl: string; tokenUrl: string; clientId: string; clientSecret?: string; scope?: string };
 export interface Article {
   id: string; feedId: string; title: string; url: string | null;
   author: string | null; publishedAt: string | null;
@@ -81,11 +96,12 @@ async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Pr
 const httpApi = {
   listFeeds: () => req<{ feeds: Feed[] }>("/api/v1/feeds").then((r) => r.feeds),
   refreshFeed: (id: string) => req<FeedRefreshResult>(`/api/v1/feeds/${id}/refresh`, { method: "POST" }),
-  subscribe: async (url: string): Promise<SubscribeResult> => {
+  subscribe: async (url: string, credentialId?: string): Promise<SubscribeResult> => {
     let res: Response;
     try {
       res = await fetch("/api/v1/feeds", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(credentialId ? { url, credentialId } : { url }),
       });
     } catch {
       throw new ApiError("network request failed", "network", 0);
@@ -134,9 +150,14 @@ const httpApi = {
   listIngestors: () => req<{ ingestors: Ingestor[] }>("/api/v1/ingestors").then((r) => r.ingestors),
   createIngestor: (input: { kind: string; config: Record<string, unknown>; fetchIntervalMin?: number; digestMode?: string; filterThreshold?: number; llmEnabled?: boolean }) =>
     req<Ingestor>("/api/v1/ingestors", { method: "POST", json: input }),
-  updateIngestor: (id: string, patch: Partial<{ fetchIntervalMin: number; digestMode: string; filterThreshold: number; llmEnabled: boolean }>) =>
+  updateIngestor: (id: string, patch: Partial<{ fetchIntervalMin: number; digestMode: string; filterThreshold: number; llmEnabled: boolean; credentialId: string | null }>) =>
     req<Ingestor>(`/api/v1/ingestors/${id}`, { method: "PATCH", json: patch }),
   deleteIngestor: (id: string) => req<void>(`/api/v1/ingestors/${id}`, { method: "DELETE" }),
+  listCredentials: () => req<{ credentials: Credential[] }>("/api/v1/credentials").then((r) => r.credentials),
+  createCredential: (input: { kind: "basic"; url: string; username: string; password: string } | { kind: "bearer"; url: string; token: string }) =>
+    req<Credential>("/api/v1/credentials", { method: "POST", json: input }),
+  deleteCredential: (id: string) => req<void>(`/api/v1/credentials/${id}`, { method: "DELETE" }),
+  startOAuth: (input: OAuthStart) => req<{ authorizeUrl: string }>("/api/v1/oauth/start", { method: "POST", json: input }),
   testIngestor: (input: { kind: string; config: Record<string, unknown>; threshold?: number; llmEnabled?: boolean }) =>
     req<IngestorTestResult>("/api/v1/ingestors/test", { method: "POST", json: input }),
 };

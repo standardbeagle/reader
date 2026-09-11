@@ -12,7 +12,7 @@ describe("describeError", () => {
     expect(describeError("bogus").title).toBe("Something went wrong");
   });
   it("every catalog entry has title, explanation and at least one step", () => {
-    for (const code of ["invalid_url", "duplicate", "feed_fetch_failed", "no_feeds_found", "invalid_opml", "invalid_takeout", "too_many_feeds", "network", "unknown"]) {
+    for (const code of ["invalid_url", "duplicate", "feed_fetch_failed", "no_feeds_found", "invalid_opml", "invalid_takeout", "too_many_feeds", "invalid_credential", "credential_in_use", "invalid_oauth", "oauth_failed", "oauth_origin_required", "popup_blocked", "network", "unknown"]) {
       const info = describeError(code);
       expect(info.title).toBeTruthy();
       expect(info.explanation).toBeTruthy();

@@ -101,6 +101,47 @@ const catalog: Record<string, ErrorInfo> = {
     explanation: "One import can add at most 500 feeds.",
     steps: ["Split the file and import it in parts"],
   },
+  invalid_credential: {
+    title: "That sign-in can't be used here",
+    explanation: "A sign-in only works for the host it was created for, and needs every field filled in.",
+    steps: [
+      "Check the feed address is the one the sign-in was made for",
+      "Fill in the username and password, or the token",
+    ],
+  },
+  credential_in_use: {
+    title: "That account is still in use",
+    explanation: "Feeds or sources still sign in with this account.",
+    steps: ["Remove the sources that use it, then remove the account"],
+  },
+  invalid_oauth: {
+    title: "Sign-in details are incomplete",
+    explanation: "The provider needs more information before Reader can start the sign-in.",
+    steps: [
+      "For Mastodon, enter just the instance host, like mastodon.social",
+      "For Reddit, paste both the client id and secret of a web app",
+      "For other feeds, fill in the authorize URL, token URL and client id",
+    ],
+  },
+  oauth_failed: {
+    title: "Sign-in didn't finish",
+    explanation: "The provider refused the sign-in, or Reader couldn't exchange its answer for a token.",
+    steps: [
+      "Start the sign-in again and approve access in the window that opens",
+      "For Reddit, check the app's redirect URI matches the one shown exactly",
+      "For Reddit, make sure the app type is “web app”",
+    ],
+  },
+  oauth_origin_required: {
+    title: "Start sign-in from Reader",
+    explanation: "Sign-in has to begin in the Reader web app so the provider knows where to send you back.",
+    steps: ["Open Reader in your browser and start the sign-in from there"],
+  },
+  popup_blocked: {
+    title: "The sign-in window was blocked",
+    explanation: "Your browser stopped Reader from opening the provider's sign-in window.",
+    steps: ["Allow pop-ups for this site, then press the sign-in button again"],
+  },
   demo_readonly: {
     title: "This is the demo",
     explanation: "The demo runs on fixed, bundled content. Adding sources needs your own reader instance.",

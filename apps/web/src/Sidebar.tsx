@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, feedPlatform } from "./api";
 import { SourceWizard } from "./SourceWizard";
 import { CreateListDialog } from "./ListDialogs";
+import { AccountsDialog } from "./Accounts";
 
 export function Sidebar(props: {
   selectedFeedId: string | null;
@@ -20,6 +21,7 @@ export function Sidebar(props: {
 }) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [createListOpen, setCreateListOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
   const qc = useQueryClient();
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds, refetchInterval: 60_000 });
   const ingestors = useQuery({ queryKey: ["ingestors"], queryFn: api.listIngestors });
@@ -87,6 +89,7 @@ export function Sidebar(props: {
             + Add source
           </button>
           <button className="sidebar-action" type="button" onClick={() => setCreateListOpen(true)}>+ List</button>
+          <button className="sidebar-action" type="button" onClick={() => setAccountsOpen(true)}>Accounts</button>
         </div>
         <ul>
           <li className={props.selectedFeedId === null ? "selected" : ""}>
@@ -147,6 +150,7 @@ export function Sidebar(props: {
       </nav>
       {props.drawer && props.open && <div className="backdrop" onClick={props.onCloseDrawer} />}
       {wizardOpen && <SourceWizard onClose={() => setWizardOpen(false)} />}
+      {accountsOpen && <AccountsDialog onClose={() => setAccountsOpen(false)} />}
       <CreateListDialog open={createListOpen} onClose={() => setCreateListOpen(false)} onActionError={props.onActionError} />
     </>
   );

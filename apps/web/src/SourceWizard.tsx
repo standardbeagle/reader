@@ -3,17 +3,31 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, feedPlatform, type IngestorTestResult, type DiscoveredFeed } from "./api";
 import { ErrorCallout } from "./ErrorCallout";
 import { FeedPicker } from "./FeedPicker";
+import { AccountPicker, useSignIn } from "./Accounts";
 
 type SourceKind = "rss" | "opml" | "youtube" | "composite" | "mastodon" | "bluesky" | "reddit";
 type Step = "kind" | "details" | "review";
+type FeedAuth = "none" | "basic" | "bearer" | "oauth2";
 
 interface FormState {
   sourceUrl: string;
+  feedAuth: FeedAuth;
+  authUsername: string;
+  authPassword: string;
+  authToken: string;
+  oauthAuthorizeUrl: string;
+  oauthTokenUrl: string;
+  oauthClientId: string;
+  oauthClientSecret: string;
+  oauthScope: string;
+  /** Credential from a finished OAuth sign-in for this feed. */
+  feedCredentialId: string;
   importText: string;
   importName: string;
   name: string;
   sourceFeedIds: string[];
   instance: string;
+  timeline: "tag" | "home";
   tag: string;
   handle: string;
   search: string;
@@ -21,10 +35,8 @@ interface FormState {
   sort: "new" | "hot" | "top";
   identifier: string;
   appPassword: string;
-  clientId: string;
-  clientSecret: string;
-  username: string;
-  password: string;
+  /** Connected Mastodon or Reddit account for the source. */
+  accountId: string;
   fetchIntervalMin: number;
   digestMode: "realtime" | "hourly" | "daily";
   llmEnabled: boolean;
@@ -33,11 +45,22 @@ interface FormState {
 
 const initial: FormState = {
   sourceUrl: "",
+  feedAuth: "none",
+  authUsername: "",
+  authPassword: "",
+  authToken: "",
+  oauthAuthorizeUrl: "",
+  oauthTokenUrl: "",
+  oauthClientId: "",
+  oauthClientSecret: "",
+  oauthScope: "",
+  feedCredentialId: "",
   importText: "",
   importName: "",
   name: "",
   sourceFeedIds: [],
   instance: "",
+  timeline: "tag",
   tag: "",
   handle: "",
   search: "",
@@ -45,10 +68,7 @@ const initial: FormState = {
   sort: "new",
   identifier: "",
   appPassword: "",
-  clientId: "",
-  clientSecret: "",
-  username: "",
-  password: "",
+  accountId: "",
   fetchIntervalMin: 60,
   digestMode: "realtime",
   llmEnabled: true,
@@ -68,7 +88,14 @@ const KIND_META: { kind: SourceKind; label: string; hint: string }[] = [
 function buildConfig(kind: SourceKind, f: FormState): Record<string, unknown> {
   if (kind === "rss" || kind === "opml" || kind === "youtube") return {};
   if (kind === "composite") return { name: f.name.trim(), sourceFeedIds: f.sourceFeedIds };
-  if (kind === "mastodon") return { instance: f.instance.trim(), ...(f.tag.trim() ? { tag: f.tag.trim() } : {}) };
+  const account = f.accountId ? { credentialId: f.accountId } : {};
+  if (kind === "mastodon") {
+    return {
+      instance: f.instance.trim(),
+      ...(f.timeline === "home" ? { timeline: "home" } : { tag: f.tag.trim() }),
+      ...account,
+    };
+  }
   if (kind === "bluesky") {
     return {
       ...(f.handle.trim() ? { handle: f.handle.trim() } : { search: f.search.trim() }),
@@ -76,21 +103,23 @@ function buildConfig(kind: SourceKind, f: FormState): Record<string, unknown> {
       ...(f.appPassword ? { appPassword: f.appPassword } : {}),
     };
   }
-  return {
-    subreddit: f.subreddit.trim(),
-    sort: f.sort,
-    ...(f.clientId.trim() ? { clientId: f.clientId.trim() } : {}),
-    ...(f.clientSecret ? { clientSecret: f.clientSecret } : {}),
-    ...(f.username.trim() ? { username: f.username.trim() } : {}),
-    ...(f.password ? { password: f.password } : {}),
-  };
+  return { subreddit: f.subreddit.trim(), sort: f.sort, ...account };
+}
+
+function feedAuthComplete(f: FormState): boolean {
+  if (f.feedAuth === "basic") return f.authUsername.trim().length > 0 && f.authPassword.length > 0;
+  if (f.feedAuth === "bearer") return f.authToken.trim().length > 0;
+  if (f.feedAuth === "oauth2") return f.feedCredentialId.length > 0;
+  return true;
 }
 
 function detailsComplete(kind: SourceKind, f: FormState): boolean {
-  if (kind === "rss") return /^https?:\/\/.+/.test(f.sourceUrl.trim());
+  if (kind === "rss") return /^https?:\/\/.+/.test(f.sourceUrl.trim()) && feedAuthComplete(f);
   if (kind === "opml" || kind === "youtube") return f.importText.length > 0;
   if (kind === "composite") return f.sourceFeedIds.length > 0;
-  if (kind === "mastodon") return f.instance.trim().length > 0;
+  if (kind === "mastodon") {
+    return f.instance.trim().length > 0 && (f.timeline === "home" ? f.accountId.length > 0 : f.tag.trim().length > 0);
+  }
   if (kind === "bluesky") return f.handle.trim().length > 0 || f.search.trim().length > 0;
   return f.subreddit.trim().length > 0;
 }
@@ -124,12 +153,32 @@ export function SourceWizard(props: { onClose: () => void }) {
     qc.invalidateQueries({ queryKey: ["articles"] });
   };
 
+  // A basic/bearer credential is created just before subscribing and removed
+  // again if the subscribe fails, so a typo does not leave orphaned secrets.
+  const subscribeFeed = async (url: string) => {
+    let created: string | null = null;
+    if (form.feedAuth === "basic") {
+      created = (await api.createCredential({ kind: "basic", url, username: form.authUsername.trim(), password: form.authPassword })).id;
+    } else if (form.feedAuth === "bearer") {
+      created = (await api.createCredential({ kind: "bearer", url, token: form.authToken.trim() })).id;
+    }
+    const credentialId = created ?? (form.feedAuth === "oauth2" ? form.feedCredentialId : undefined);
+    try {
+      return await api.subscribe(url, credentialId);
+    } catch (e) {
+      if (created) await api.deleteCredential(created).catch(() => {});
+      throw e;
+    }
+  };
+  const feedSignIn = useSignIn((c) => set("feedCredentialId", c.id));
+
   const subscribe = useMutation({
-    mutationFn: api.subscribe,
+    mutationFn: subscribeFeed,
     onSuccess: (result) => {
       setErrorCode(null);
       if (result.status === "choices") { setDiscovered(result.feeds); return; }
       invalidateAll();
+      qc.invalidateQueries({ queryKey: ["credentials"] });
       props.onClose();
     },
     onError: (e) => setErrorCode(e instanceof ApiError ? e.code : "unknown"),
@@ -179,6 +228,7 @@ export function SourceWizard(props: { onClose: () => void }) {
 
   const pickKind = (k: SourceKind) => {
     setKind(k);
+    set("accountId", "");
     setStep("details");
   };
 
@@ -219,6 +269,77 @@ export function SourceWizard(props: { onClose: () => void }) {
             <input id="wiz-url" type="url" inputMode="url" value={form.sourceUrl} placeholder="https://example.com/feed.xml"
               autoComplete="url" spellCheck={false}
               onChange={(e) => set("sourceUrl", e.target.value)} />
+            <label htmlFor="wiz-feed-auth">Sign-in</label>
+            <select id="wiz-feed-auth" value={form.feedAuth} onChange={(e) => set("feedAuth", e.target.value as FeedAuth)}>
+              <option value="none">None — public feed</option>
+              <option value="basic">Username and password</option>
+              <option value="bearer">Access token</option>
+              <option value="oauth2">OAuth 2.0 sign-in</option>
+            </select>
+            {form.feedAuth !== "none" && (
+              <p className="auth-hint">With a sign-in, paste the feed's own address — Reader only sends it to that host and skips feed discovery.</p>
+            )}
+            {form.feedAuth === "basic" && (
+              <div className="row">
+                <div>
+                  <label htmlFor="wiz-auth-user">Username</label>
+                  <input id="wiz-auth-user" type="text" autoComplete="off" value={form.authUsername} onChange={(e) => set("authUsername", e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="wiz-auth-pass">Password</label>
+                  <input id="wiz-auth-pass" type="password" autoComplete="new-password" value={form.authPassword} onChange={(e) => set("authPassword", e.target.value)} />
+                </div>
+              </div>
+            )}
+            {form.feedAuth === "bearer" && (
+              <>
+                <label htmlFor="wiz-auth-token">Token</label>
+                <input id="wiz-auth-token" type="password" autoComplete="off" value={form.authToken} onChange={(e) => set("authToken", e.target.value)} />
+              </>
+            )}
+            {form.feedAuth === "oauth2" && (
+              <>
+                <div className="row">
+                  <div>
+                    <label htmlFor="wiz-oauth-authorize">Authorize URL</label>
+                    <input id="wiz-oauth-authorize" type="url" value={form.oauthAuthorizeUrl} onChange={(e) => set("oauthAuthorizeUrl", e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="wiz-oauth-token">Token URL</label>
+                    <input id="wiz-oauth-token" type="url" value={form.oauthTokenUrl} onChange={(e) => set("oauthTokenUrl", e.target.value)} />
+                  </div>
+                </div>
+                <div className="row">
+                  <div>
+                    <label htmlFor="wiz-oauth-client">Client ID</label>
+                    <input id="wiz-oauth-client" type="text" value={form.oauthClientId} onChange={(e) => set("oauthClientId", e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="wiz-oauth-secret">Client secret (optional)</label>
+                    <input id="wiz-oauth-secret" type="password" value={form.oauthClientSecret} onChange={(e) => set("oauthClientSecret", e.target.value)} />
+                  </div>
+                </div>
+                <label htmlFor="wiz-oauth-scope">Scope (optional)</label>
+                <input id="wiz-oauth-scope" type="text" value={form.oauthScope} onChange={(e) => set("oauthScope", e.target.value)} />
+                <div className="actions">
+                  <button type="button"
+                    disabled={feedSignIn.pending || !form.sourceUrl.trim() || !form.oauthAuthorizeUrl.trim() || !form.oauthTokenUrl.trim() || !form.oauthClientId.trim()}
+                    onClick={() => feedSignIn.run({
+                      provider: "generic",
+                      feedUrl: form.sourceUrl.trim(),
+                      authorizeUrl: form.oauthAuthorizeUrl.trim(),
+                      tokenUrl: form.oauthTokenUrl.trim(),
+                      clientId: form.oauthClientId.trim(),
+                      ...(form.oauthClientSecret.trim() ? { clientSecret: form.oauthClientSecret.trim() } : {}),
+                      ...(form.oauthScope.trim() ? { scope: form.oauthScope.trim() } : {}),
+                    })}>
+                    {feedSignIn.pending ? "Waiting for sign-in…" : form.feedCredentialId ? "Signed in ✓ — sign in again" : "Sign in"}
+                  </button>
+                  {feedSignIn.pending && <button type="button" onClick={feedSignIn.cancel}>Cancel</button>}
+                </div>
+                {feedSignIn.errorCode && <ErrorCallout code={feedSignIn.errorCode} onDismiss={feedSignIn.clearError} />}
+              </>
+            )}
           </>
         )}
 
@@ -276,16 +397,30 @@ export function SourceWizard(props: { onClose: () => void }) {
         )}
 
         {step === "details" && kind === "mastodon" && (
-          <div className="row">
-            <div>
-              <label htmlFor="wiz-instance">Instance</label>
-              <input id="wiz-instance" type="text" value={form.instance} placeholder="mastodon.social" onChange={(e) => set("instance", e.target.value)} />
+          <>
+            <div className="row">
+              <div>
+                <label htmlFor="wiz-instance">Instance</label>
+                <input id="wiz-instance" type="text" value={form.instance} placeholder="mastodon.social"
+                  onChange={(e) => { set("instance", e.target.value); set("accountId", ""); }} />
+              </div>
+              <div>
+                <label htmlFor="wiz-timeline">Timeline</label>
+                <select id="wiz-timeline" value={form.timeline} onChange={(e) => set("timeline", e.target.value as FormState["timeline"])}>
+                  <option value="tag">Hashtag</option>
+                  <option value="home">My home timeline</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label htmlFor="wiz-tag">Tag</label>
-              <input id="wiz-tag" type="text" value={form.tag} placeholder="without #" onChange={(e) => set("tag", e.target.value)} />
-            </div>
-          </div>
+            {form.timeline === "tag" && (
+              <>
+                <label htmlFor="wiz-tag">Tag</label>
+                <input id="wiz-tag" type="text" value={form.tag} placeholder="without #" onChange={(e) => set("tag", e.target.value)} />
+              </>
+            )}
+            <AccountPicker provider="mastodon" instance={form.instance} value={form.accountId} onChange={(id) => set("accountId", id)} />
+            <p className="auth-hint">{form.timeline === "home" ? "The home timeline needs a connected account." : "Optional for hashtags; some instances only show them to signed-in users."}</p>
+          </>
         )}
         {step === "details" && kind === "bluesky" && (
           <>
@@ -329,28 +464,8 @@ export function SourceWizard(props: { onClose: () => void }) {
                 </select>
               </div>
             </div>
-            <label>Authentication (optional)</label>
-            <div className="row">
-              <div>
-                <label htmlFor="wiz-client-id">Client ID</label>
-                <input id="wiz-client-id" type="text" value={form.clientId} onChange={(e) => set("clientId", e.target.value)} />
-              </div>
-              <div>
-                <label htmlFor="wiz-client-secret">Client secret</label>
-                <input id="wiz-client-secret" type="password" value={form.clientSecret} onChange={(e) => set("clientSecret", e.target.value)} />
-              </div>
-            </div>
-            <div className="row">
-              <div>
-                <label htmlFor="wiz-username">Username</label>
-                <input id="wiz-username" type="text" value={form.username} onChange={(e) => set("username", e.target.value)} />
-              </div>
-              <div>
-                <label htmlFor="wiz-password">Password</label>
-                <input id="wiz-password" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} />
-              </div>
-            </div>
-            <p className="auth-hint">Leave blank to try unauthenticated access. Credentials are stored in your local reader database.</p>
+            <AccountPicker provider="reddit" value={form.accountId} onChange={(id) => set("accountId", id)} />
+            <p className="auth-hint">Without an account Reader reads Reddit's public pages, which Reddit often rate-limits or blocks.</p>
           </>
         )}
 

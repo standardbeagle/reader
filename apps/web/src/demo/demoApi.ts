@@ -11,6 +11,7 @@ import type {
   CategoryCount,
   Feed,
   FeedRefreshResult,
+  Credential,
   Ingestor,
   IngestorTestResult,
   SavedList,
@@ -105,7 +106,7 @@ export const demoApi = {
     Promise.resolve(seed.feeds.map((f) => feedById(f.id)!)),
   refreshFeed: (id: string): Promise<FeedRefreshResult> =>
     Promise.resolve({ feed: feedById(id), newArticles: 0, notModified: true }),
-  subscribe: (_url: string): Promise<SubscribeResult> => readOnly(),
+  subscribe: (_url: string, _credentialId?: string): Promise<SubscribeResult> => readOnly(),
   discover: (_url: string) => readOnly(),
   importOpml: (_opml: string) => readOnly(),
   importYoutubeTakeout: (_csv: string) => readOnly(),
@@ -190,5 +191,9 @@ export const demoApi = {
   createIngestor: () => readOnly(),
   updateIngestor: () => readOnly(),
   deleteIngestor: () => readOnly(),
+  listCredentials: (): Promise<Credential[]> => Promise.resolve([]),
+  createCredential: () => readOnly(),
+  deleteCredential: (_id: string) => readOnly(),
+  startOAuth: () => readOnly(),
   testIngestor: (): Promise<IngestorTestResult> => readOnly(),
 };
