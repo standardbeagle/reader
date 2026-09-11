@@ -122,7 +122,7 @@ export function ArticleList(props: {
       className={`${a.readAt ? "read" : "unread"} ${props.selectedId === a.id ? "selected" : ""}`}
     >
       <button onClick={() => openArticle(a)}>
-        <span className="t">{a.title}</span>
+        <span className="t">{a.media && <span className="episode-badge" aria-label="Episode">{a.media.type?.startsWith("video/") ? "▶" : "♪"}</span>}{a.title}</span>
       </button>
       <span className="date">{a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : ""}</span>
     </li>

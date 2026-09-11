@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { EpisodePlayer } from "./EpisodePlayer";
 import { api, type Article, type SavedList } from "./api";
 import { safeUrl } from "./urls";
 import { SaveToListDialog } from "./ListDialogs";
@@ -506,6 +507,7 @@ function ArticleLoading({ hasSource }: { hasSource: boolean }) {
 function ArticleContent({ a, htmlBody, textBody }: { a: Article; htmlBody: string | null; textBody: string | null }) {
   return (
     <>
+      {a.media && <EpisodePlayer a={a} />}
       {htmlBody
         ? <>
             <LeadMedia a={a} htmlBody={htmlBody} />

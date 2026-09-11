@@ -26,7 +26,16 @@ export interface Article {
   /** Saved lists this article belongs to (present on single-article fetches). */
   listIds?: string[];
   categories?: string[];
+  /** Playable audio/video — a podcast episode. */
+  media?: { url: string; type: string | null } | null;
+  transcript?: { url: string; type: string | null } | null;
+  chaptersUrl?: string | null;
 }
+export type Transcript =
+  | { kind: "cues"; cues: { start: number; text: string; speaker: string | null }[] }
+  | { kind: "html"; html: string }
+  | { kind: "text"; text: string };
+export interface Chapter { start: number; title: string; url: string | null; img: string | null }
 export interface SavedList {
   id: string; title: string; visibility: "public" | "private";
   token: string; createdAt: string; itemCount: number;
@@ -133,6 +142,8 @@ const httpApi = {
     return req<{ categories: CategoryCount[] }>(`/api/v1/categories?${q}`).then((r) => r.categories);
   },
   getArticle: (id: string) => req<Article>(`/api/v1/articles/${encodeURIComponent(id)}`),
+  getTranscript: (id: string) => req<Transcript>(`/api/v1/articles/${encodeURIComponent(id)}/transcript`),
+  getChapters: (id: string) => req<{ chapters: Chapter[] }>(`/api/v1/articles/${encodeURIComponent(id)}/chapters`).then((r) => r.chapters),
   setRead: (id: string, read: boolean) =>
     req<void>(`/api/v1/articles/${id}/read`, { method: "POST", json: { read } }),
   setSnooze: (id: string, until: string | null) =>

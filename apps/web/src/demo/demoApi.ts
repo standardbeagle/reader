@@ -111,6 +111,8 @@ export const demoApi = {
   importOpml: (_opml: string) => readOnly(),
   importYoutubeTakeout: (_csv: string) => readOnly(),
   unsubscribe: (_id: string) => readOnly(),
+  getTranscript: (_id: string) => readOnly(),
+  getChapters: (_id: string) => readOnly(),
   listArticles: (params: Parameters<typeof page>[0] = {}) => Promise.resolve(page(params)),
   listCategories: (feedId?: string): Promise<CategoryCount[]> => {
     const counts = new Map<string, number>();

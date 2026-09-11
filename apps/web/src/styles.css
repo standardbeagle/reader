@@ -795,3 +795,16 @@ kbd {
   .nav-link { max-width: 46%; padding: 10px; }
   .nav-link .nav-title { max-width: 18ch; }
 }
+
+/* Podcast episodes: player, chapters, transcript. */
+.reader .episode { margin: 0 0 var(--space-5); display: grid; gap: var(--space-2); }
+.reader .episode-player { width: 100%; max-width: 100%; border-radius: var(--radius); }
+.reader video.episode-player { max-height: min(420px, 50vh); background: #000; }
+.reader .episode-extra { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
+.reader .episode-extra summary { cursor: pointer; font-weight: 600; }
+.reader .episode-extra ol { list-style: none; margin: var(--space-2) 0 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.reader .episode-extra li button { display: block; width: 100%; text-align: left; padding: 4px 6px; border-radius: var(--radius); line-height: 1.45; }
+.reader .episode-extra li button:hover { background: var(--bg-hover); }
+.reader .episode-time { font-variant-numeric: tabular-nums; color: var(--text-dim); margin-right: var(--space-2); }
+.reader .episode-note { color: var(--text-dim); margin: var(--space-2) 0 0; }
+.episode-badge { color: var(--accent-text); margin-right: 0.35em; }
