@@ -80,7 +80,7 @@ const KIND_META: { kind: SourceKind; label: string; hint: string }[] = [
   { kind: "opml", label: "OPML import", hint: "Move your subscriptions in from another reader." },
   { kind: "youtube", label: "YouTube subscriptions", hint: "Follow every channel from a Google Takeout export." },
   { kind: "composite", label: "Combined AI view", hint: "Merge several RSS feeds into one source, filtered and summarized by AI." },
-  { kind: "mastodon", label: "Mastodon", hint: "Follow an account, tag, or search." },
+  { kind: "mastodon", label: "Mastodon", hint: "Follow a hashtag or your home timeline." },
   { kind: "bluesky", label: "Bluesky", hint: "Follow an account or search." },
   { kind: "reddit", label: "Reddit", hint: "Follow a subreddit." },
 ];
