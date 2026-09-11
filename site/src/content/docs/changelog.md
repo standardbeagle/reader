@@ -5,6 +5,11 @@ description: Notable changes to reader, newest first.
 
 ## Unreleased
 
+- **YouTube videos play** in the reader through YouTube's privacy-enhanced
+  embed player, and the Embedded page tab becomes a **Video** tab for them.
+- **Embedded page knows when it can't work** — pages that refuse framing
+  (`X-Frame-Options`, CSP `frame-ancestors`) get a disabled tab with the
+  reason on hover instead of a blank frame.
 - **Real-time updates** — Mastodon sources with a connected account and
   Bluesky account sources now receive posts as they are published, over the
   Mastodon streaming API and Bluesky's Jetstream. Podcasts refresh as soon as

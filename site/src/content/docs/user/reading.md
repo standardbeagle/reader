@@ -25,7 +25,15 @@ filter. Chips are per-feed — saved lists have their own membership instead.
 ## The reader pane
 
 - **Reader / Embedded page** tabs: sanitized article content, or the original
-  page in a sandboxed iframe when the feed only supplied a summary.
+  page in a sandboxed iframe when the feed only supplied a summary. Many
+  sites refuse to be shown inside another site (`X-Frame-Options` or a CSP
+  `frame-ancestors` rule). reader checks the page's headers and disables the
+  tab for those; hover it to see why, and use the title link to open the
+  original in a new tab.
+- **YouTube videos** play in the reader. YouTube's watch pages refuse to be
+  framed, so reader uses its privacy-enhanced embed player
+  (`youtube-nocookie.com`) in the Reader tab and in place of the embedded
+  page, which becomes a **Video** tab.
 - Previous / next article links at the bottom, plus left/right swipe on touch
   devices with a directional push transition.
 - A small dot at the left or right edge (and on the bottom navigation links)

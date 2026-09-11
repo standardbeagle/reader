@@ -27,7 +27,7 @@ A one-minute tour, narrated:
   Feedly, Inoreader, FreshRSS and the rest, up to 500 feeds at a time.
 - **Your YouTube subscriptions.** YouTube has no subscriptions feed, so
   reader reads the `subscriptions.csv` from a Google Takeout export and
-  follows each channel's own feed.
+  follows each channel's own feed. Videos play right in the reader.
 - **History, not just the latest page.** Feeds that link to older pages
   (RFC 5005, JSON Feed `next_url`) fill in up to ten pages when you subscribe.
 
@@ -79,7 +79,9 @@ See [Ingestors](/reader/user/ingestors/).
   makes previous/next skip what you've read.
 - Subject filters built from each feed's categories.
 - Snooze an article until later today, tomorrow or next week.
-- Saved lists, private or public; a public list is itself an RSS feed.
+- Saved lists. Make one public and it becomes a curated feed: the things in
+  a topic you'd pass on, picked from everything you read, for others to
+  follow.
 - `j`/`k` to move, snooze keys, and keys you choose for saving to lists.
 
 ![The pinboard view of a feed](../../assets/screenshots/pinboard.png)
