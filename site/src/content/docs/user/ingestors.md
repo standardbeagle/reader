@@ -12,13 +12,25 @@ Configure them under **Ingestors** in the sidebar.
 
 | Platform | Auth |
 | --- | --- |
-| Mastodon | public timelines need no credentials |
+| Mastodon | hashtags need no account; a connected account reaches instances that hide timelines from signed-out users, and unlocks **My home timeline** |
 | Bluesky | handle + app password |
-| Reddit | client id/secret, optionally user/pass for authed reads |
+| Reddit | a connected Reddit account; without one, Reddit's public pages, which it often rate-limits |
 
-Credentials can live in the server environment (see
-[Configuration](/reader/configuration/)) or in the ingestor config. Either
-way, credentials are redacted from API responses.
+### Connecting an account
+
+Accounts are connected from the source's step in **Add source**, in a
+sign-in window from the platform itself. Reader never sees your password.
+
+- **Mastodon** — enter the instance and press **Connect**. Reader registers
+  itself with the instance automatically.
+- **Reddit** — create a **web app** at reddit.com/prefs/apps and set its
+  redirect URI to the one the wizard shows
+  (`<your reader address>/api/v1/oauth/callback`). Paste the app's client id
+  and secret, then press **Sign in with Reddit**. One account serves every
+  subreddit source.
+
+**Accounts** in the sidebar lists connected accounts, removes ones no source
+uses, and attaches an account to existing sources of its platform.
 
 ## Digest modes
 

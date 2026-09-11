@@ -22,16 +22,26 @@ the server. Defaults are loopback-safe.
 | `OPENROUTER_API_KEY` | unset | Enables LLM filtering and digest summaries for ingestors. Without it, filtering fails closed (nothing is dropped) |
 | `READER_LLM_MODEL` | server default | OpenRouter model for filter/summarize |
 
-## Ingestor credentials (optional)
+## Sign-ins and connected accounts
 
-Per-platform auth can come from the environment or the ingestor config;
-either way, values are redacted from API responses.
+Mastodon and Reddit accounts, and sign-ins for private feeds, are connected
+in the web UI (**Add source**, **Accounts**) and stored in the local
+database. They are not configured through the environment. Each one is bound
+to a single origin: its password, token or OAuth access token is sent only
+there. An OAuth refresh token and client secret go only to the provider's
+token endpoint. Redirects to another host drop the sign-in. Secrets are stored
+in plaintext in the SQLite file, so protect it like the `env` file. API
+responses never include them.
+
+Bluesky still reads its app password from the ingestor config or the
+environment:
 
 | Variable | Platform |
 | --- | --- |
 | `BLUESKY_IDENTIFIER`, `BLUESKY_APP_PASSWORD` | Bluesky |
-| `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | Reddit app auth |
-| `REDDIT_USERNAME`, `REDDIT_PASSWORD` | Reddit authenticated reads |
+
+`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME` and
+`REDDIT_PASSWORD` are no longer read. Connect a Reddit account instead.
 
 ## Secret hygiene
 

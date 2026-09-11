@@ -5,6 +5,24 @@ description: Notable changes to reader, newest first.
 
 ## Unreleased
 
+- **YouTube subscriptions import** — **+ Add source → YouTube subscriptions**
+  reads Google Takeout's `subscriptions.csv` and follows each channel's feed.
+  YouTube has no feed for your subscriptions as a whole. Videos now show their
+  thumbnail and description.
+- **Feed sign-in** — subscribe to private feeds with a username and password,
+  an access token, or an OAuth 2.0 sign-in. A feed's sign-in is sent only to
+  that feed's host.
+- **Connected accounts** — sign in to Mastodon and Reddit instead of storing
+  passwords. **Accounts** in the sidebar manages them.
+- **Mastodon home timeline** — follow your own home timeline once an account
+  is connected.
+- **Breaking: Reddit sign-in** — Reddit ingestors no longer accept a client
+  secret, username or password, and the `REDDIT_*` variables are ignored. The
+  upgrade deletes stored Reddit secrets. Connect a Reddit account and attach
+  it under **Accounts**.
+- **Fix:** Mastodon ingestors stopped receiving new posts after their first
+  fetch. They now page forward.
+- **Fix:** a feed redirect to another host no longer carries its sign-in along.
 - **OPML import** — **+ Add source → OPML import** subscribes to every feed in
   an exported OPML file at once; duplicates are skipped, first fetches run in
   the background.

@@ -61,5 +61,6 @@ browser.
 ## Secrets (`~/.config/reader/env`, user-managed, chmod 600)
 
 - `OPENROUTER_API_KEY` — LLM filter/summarize (currently needs a fresh key; the one previously in shell env is 401)
-- Optional per-platform auth: `BLUESKY_IDENTIFIER`, `BLUESKY_APP_PASSWORD`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`
-- Ingestor credentials may also live in ingestor config (local DB); API responses redact them.
+- Optional Bluesky auth: `BLUESKY_IDENTIFIER`, `BLUESKY_APP_PASSWORD` (or in the ingestor config).
+- Mastodon/Reddit accounts and private-feed sign-ins live in the `credentials` table of `reader.db`, connected through the web UI's OAuth popup. They are plaintext at rest and never returned by the API. Access tokens, passwords and bearer tokens are sent through `auth/credentials.ts` `authorizationFor`, which refuses any URL off the credential's origin (callers: poller, Mastodon and Reddit adapters). The one exception is the account-name lookup right after sign-in (`auth/oauth.ts` `getJson`), which targets the credential's own origin. OAuth refresh tokens and client secrets go only to the stored `tokenUrl`, which for a generic provider may be another host. `REDDIT_*` env vars are no longer read; migration 0009 deleted inline Reddit secrets from ingestor configs.
+- OAuth redirects land in the user's browser at `<origin>/api/v1/oauth/callback`, never server-to-server, so sign-in needs no exposure change. A Reddit web app's registered redirect URI must match the origin Reader is opened on (`https://reader.sbdev.io/api/v1/oauth/callback` in production).
