@@ -8,6 +8,7 @@ const parser = new Parser({
     item: [
       ["media:thumbnail", "media:thumbnail", { keepArray: true }],
       ["media:content", "media:content", { keepArray: true }],
+      ["media:group", "media:group"],
       // Atom <category> elements carry the subject in attributes; without this
       // custom field some Atom feeds lose categories entirely.
       ["category", "category", { keepArray: true }],
@@ -29,10 +30,25 @@ function firstMediaUrl(value: unknown): string | null {
   return typeof url === "string" && url.trim() ? url.trim() : null;
 }
 
+// Media RSS allows media:* elements inside a <media:group>. YouTube puts every
+// entry's thumbnail and description there, and its group media:content is a
+// player URL, not an image — so only the group's thumbnail is used.
+function mediaGroup(item: Record<string, unknown>): Record<string, unknown> | null {
+  const group = item["media:group"];
+  return group && typeof group === "object" ? group as Record<string, unknown> : null;
+}
+
 function mediaUrl(item: Record<string, unknown>): string | null {
   return firstMediaUrl(item.enclosure)
     ?? firstMediaUrl(item["media:thumbnail"])
-    ?? firstMediaUrl(item["media:content"]);
+    ?? firstMediaUrl(item["media:content"])
+    ?? firstMediaUrl(mediaGroup(item)?.["media:thumbnail"]);
+}
+
+function mediaDescription(item: Record<string, unknown>): string | null {
+  const raw = mediaGroup(item)?.["media:description"];
+  const text = Array.isArray(raw) ? raw[0] : raw;
+  return typeof text === "string" && text.trim() ? text.trim() : null;
 }
 
 // RSS <category> maps to strings; Atom <category term="x"> maps to objects.
@@ -83,7 +99,7 @@ export async function parseFeed(xml: string): Promise<ParsedFeed> {
       : typeof it.content === "string" ? it.content : null;
     const rawSummary = typeof it.summary === "string"
       ? it.summary
-      : typeof it.contentSnippet === "string" ? it.contentSnippet : null;
+      : typeof it.contentSnippet === "string" ? it.contentSnippet : mediaDescription(it);
     const contentHtml = rawContent ?? (looksLikeHtml(rawSummary) ? rawSummary : null);
     return {
       guid,

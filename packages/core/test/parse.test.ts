@@ -79,6 +79,16 @@ describe("parseFeed", () => {
     expect(feed.articles[1]!.imageUrl).toBe("https://example.com/thumb.jpg");
   });
 
+  it("reads thumbnail and description from a YouTube media:group", async () => {
+    const feed = await parseFeed(fixture("youtube.xml"));
+    const [video, short] = feed.articles;
+    expect(video!.imageUrl).toBe("https://i4.ytimg.com/vi/vid00000001/hqdefault.jpg");
+    expect(video!.summary).toBe("What this video covers.\n\nLinks: https://example.com/notes");
+    expect(video!.contentHtml).toBeNull();
+    expect(short!.imageUrl).toBe("https://i1.ytimg.com/vi/vid00000002/hqdefault.jpg");
+    expect(short!.summary).toBeNull();
+  });
+
   it("synthesizes a stable guid when missing", async () => {
     const a = await parseFeed(fixture("no-guid.xml"));
     const b = await parseFeed(fixture("no-guid.xml"));
