@@ -65,6 +65,11 @@ digests tomorrow.
 
 ## See it
 
+<video controls preload="metadata" playsinline poster="/reader/video/reader-features-poster.webp" style="width:100%;border-radius:8px">
+  <source src="/reader/video/reader-features.webm" type="video/webm" />
+  <track kind="captions" src="/reader/video/reader-features.vtt" srclang="en" label="English" />
+</video>
+
 ![A Podcasting 2.0 episode with chapters, playing in reader](../../assets/screenshots/podcast-episode.png)
 
 ![Image-led pinboard view of a feed](../../assets/screenshots/pinboard.png)

@@ -7,6 +7,10 @@ A Google Reader clone for the agent era — an RSS, Atom, JSON Feed and podcast 
 
 ![reader's three-pane layout: feeds, article list, and an open article](site/src/assets/screenshots/desktop-reader.png)
 
+![A one-minute tour: adding sources, private-feed sign-in, a podcast with chapters and transcript, and YouTube in the pinboard view](site/public/video/reader-features.webp)
+
+The [Features page](https://dev.standardbeagle.com/reader/features/) has the same tour as video with narration.
+
 RSS was always pull-based updates from publishers. Agents are exactly the kind of prolific, structured publishers that drown a chat UI but fit a feed perfectly. This reader treats feeds as the universal subscription format — blogs today, agent digests tomorrow.
 
 ## Features

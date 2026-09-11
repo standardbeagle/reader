@@ -9,6 +9,13 @@ Everything below runs in the desktop app and the hosted web service alike,
 and you can try most of it in the [demo](/reader/demo/) without installing
 anything.
 
+A one-minute tour, narrated:
+
+<video controls preload="metadata" playsinline poster="/reader/video/reader-features-poster.webp" style="width:100%;border-radius:8px">
+  <source src="/reader/video/reader-features.webm" type="video/webm" />
+  <track kind="captions" src="/reader/video/reader-features.vtt" srclang="en" label="English" />
+</video>
+
 ## Follow anything that publishes
 
 ![The Add source wizard: RSS/Atom feed, OPML import, YouTube subscriptions, Combined AI view, Mastodon, Bluesky and Reddit](../../assets/screenshots/add-source.png)
