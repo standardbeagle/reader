@@ -53,7 +53,12 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-/** The popup the provider redirected to reports back to the opener and closes. */
+/**
+ * The popup the provider redirected to reports back and closes. It uses a
+ * same-origin BroadcastChannel, not window.opener: a provider page sending
+ * Cross-Origin-Opener-Policy severs the opener link for the rest of the
+ * popup's life, even after it navigates back to Reader.
+ */
 function callbackPage(reply: FastifyReply, message: { ok: true; credential: ReturnType<typeof describeCredential> } | { ok: false; error: string }) {
   // JSON inside a script: escape "<" so a crafted error string cannot close the tag.
   const payload = JSON.stringify({ type: "reader-oauth", ...message }).replace(/</g, "\\u003c");
@@ -63,7 +68,7 @@ function callbackPage(reply: FastifyReply, message: { ok: true; credential: Retu
     .header("content-type", "text/html; charset=utf-8")
     .header("cache-control", "no-store")
     .send(`<!doctype html><meta charset="utf-8"><title>Reader sign-in</title><p>${escapeHtml(text)}</p>
-<script>if (window.opener) { window.opener.postMessage(${payload}, window.location.origin); window.close(); }</script>`);
+<script>const channel = new BroadcastChannel("reader-oauth"); channel.postMessage(${payload}); channel.close(); window.close();</script>`);
 }
 
 export function registerAuthRoutes(app: FastifyInstance, storage: Storage): void {
