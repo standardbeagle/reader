@@ -97,6 +97,23 @@ describe("parseFeed", () => {
     expect((await parseFeed(rss("<ttl>soon</ttl>"))).updateHintMinutes).toBeNull();
   });
 
+  it("keeps podcast audio out of the image and reads Podcasting 2.0 tags", async () => {
+    const feed = await parseFeed(fixture("podcast.xml"));
+    const [ep1, ep2] = feed.articles;
+    expect(ep1).toMatchObject({
+      imageUrl: "https://pod.example.com/ep1.jpg",
+      media: { url: "https://cdn.example.com/ep1.mp3", type: "audio/mpeg" },
+      transcript: { url: "https://pod.example.com/ep1.vtt", type: "text/vtt" },
+      chaptersUrl: "https://pod.example.com/ep1-chapters.json",
+    });
+    expect(ep2).toMatchObject({
+      imageUrl: "https://pod.example.com/show.jpg",
+      media: { url: "https://cdn.example.com/ep2.mp4", type: "video/mp4" },
+      transcript: null,
+      chaptersUrl: null,
+    });
+  });
+
   it("synthesizes a stable guid when missing", async () => {
     const a = await parseFeed(fixture("no-guid.xml"));
     const b = await parseFeed(fixture("no-guid.xml"));

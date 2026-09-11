@@ -35,6 +35,7 @@ describe("JSON Feed", () => {
       summary: "Short",
       imageUrl: "https://json.example.com/hero.jpg",
       categories: ["web", "feeds"],
+      media: null,
     }]);
   });
 
@@ -56,6 +57,7 @@ describe("JSON Feed", () => {
       summary: null,
       imageUrl: "https://json.example.com/b.png",
       publishedAt: new Date("2026-07-02T00:00:00Z"),
+      media: { url: "https://json.example.com/a.mp3", type: "audio/mpeg" },
     });
     expect(item!.title).toBe("Just a short microblog post that has no title of its own at all, which is…");
   });

@@ -1,6 +1,6 @@
 import Parser from "rss-parser";
 import { createHash } from "node:crypto";
-import type { ParsedFeed, ParsedArticle } from "./types.js";
+import type { ArticleMedia, ParsedFeed, ParsedArticle } from "./types.js";
 import { looksLikeHtml } from "./content.js";
 import { limitCategories } from "./categories.js";
 import { parseJsonFeed } from "./json-feed.js";
@@ -12,12 +12,40 @@ const parser = new Parser({
       ["media:thumbnail", "media:thumbnail", { keepArray: true }],
       ["media:content", "media:content", { keepArray: true }],
       ["media:group", "media:group"],
+      ["podcast:transcript", "podcast:transcript", { keepArray: true }],
+      ["podcast:chapters", "podcast:chapters"],
       // Atom <category> elements carry the subject in attributes; without this
       // custom field some Atom feeds lose categories entirely.
       ["category", "category", { keepArray: true }],
     ],
   },
 });
+
+type MediaKind = "image" | "playable" | "unknown";
+
+const PLAYABLE_EXT = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|mp4|m4v|mov|webm)(\?|$)/i;
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif)(\?|$)/i;
+
+function attrsOf(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const object = value as Record<string, unknown>;
+  return (object.$ && typeof object.$ === "object" ? object.$ : object) as Record<string, unknown>;
+}
+
+/** What an enclosure or media:content points at, from its type, medium or extension. */
+function mediaKind(value: unknown): MediaKind {
+  const attrs = attrsOf(value);
+  const type = String(attrs.type ?? "").toLowerCase();
+  const medium = String(attrs.medium ?? "").toLowerCase();
+  const url = String(attrs.url ?? "");
+  if (type.startsWith("image/") || medium === "image" || (!type && IMAGE_EXT.test(url))) return "image";
+  if (/^(audio|video)\//.test(type) || medium === "audio" || medium === "video" || (!type && PLAYABLE_EXT.test(url))) return "playable";
+  return "unknown";
+}
+
+function listOf(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : value ? [value] : [];
+}
 
 function firstMediaUrl(value: unknown): string | null {
   const candidate = Array.isArray(value) ? value[0] : value;
@@ -41,11 +69,48 @@ function mediaGroup(item: Record<string, unknown>): Record<string, unknown> | nu
   return group && typeof group === "object" ? group as Record<string, unknown> : null;
 }
 
-function mediaUrl(item: Record<string, unknown>): string | null {
-  return firstMediaUrl(item.enclosure)
+/**
+ * The article's picture. Enclosures and media:content only count when they
+ * are images — a podcast's mp3 enclosure is not a hero image. Episode art
+ * (itunes:image) comes next, then the show's art.
+ */
+function imageUrl(item: Record<string, unknown>, showArt: string | null): string | null {
+  const enclosure = listOf(item.enclosure).find((e) => mediaKind(e) === "image");
+  const content = listOf(item["media:content"]).find((e) => mediaKind(e) !== "playable");
+  const itunes = (item.itunes as Record<string, unknown> | undefined)?.image;
+  return firstMediaUrl(enclosure)
     ?? firstMediaUrl(item["media:thumbnail"])
-    ?? firstMediaUrl(item["media:content"])
-    ?? firstMediaUrl(mediaGroup(item)?.["media:thumbnail"]);
+    ?? firstMediaUrl(content)
+    ?? firstMediaUrl(mediaGroup(item)?.["media:thumbnail"])
+    ?? (typeof itunes === "string" && itunes.trim() ? itunes.trim() : null)
+    ?? showArt;
+}
+
+function playableMedia(item: Record<string, unknown>): ArticleMedia | null {
+  const candidate = [...listOf(item.enclosure), ...listOf(item["media:content"])].find((e) => mediaKind(e) === "playable");
+  const url = firstMediaUrl(candidate);
+  if (!url) return null;
+  const type = String(attrsOf(candidate).type ?? "").trim();
+  return { url, type: type || null };
+}
+
+// Best first: timed formats let the reader seek the player to a line.
+const TRANSCRIPT_PREFERENCE = ["text/vtt", "application/x-subrip", "application/srt", "application/json", "text/html", "text/plain"];
+
+function bestTranscript(item: Record<string, unknown>): ArticleMedia | null {
+  const offered = listOf(item["podcast:transcript"]).map(attrsOf)
+    .filter((a) => typeof a.url === "string" && a.url.trim())
+    .map((a) => ({ url: String(a.url).trim(), type: String(a.type ?? "").trim().toLowerCase() || null }));
+  const rank = (t: ArticleMedia) => {
+    const i = t.type ? TRANSCRIPT_PREFERENCE.indexOf(t.type) : -1;
+    return i === -1 ? TRANSCRIPT_PREFERENCE.length : i;
+  };
+  return offered.sort((a, b) => rank(a) - rank(b))[0] ?? null;
+}
+
+function chaptersUrl(item: Record<string, unknown>): string | null {
+  const url = attrsOf(listOf(item["podcast:chapters"])[0]).url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
 }
 
 function mediaDescription(item: Record<string, unknown>): string | null {
@@ -98,6 +163,8 @@ export async function parseFeed(xml: string): Promise<ParsedFeed> {
   if (body.startsWith("{")) return parseJsonFeed(body);
   if (DOCTYPE_SUBSET.test(xml)) throw new Error("feed contains a DOCTYPE internal subset");
   const raw = await parser.parseString(xml);
+  const showImage = (raw as unknown as { itunes?: { image?: unknown } }).itunes?.image;
+  const showArt = typeof showImage === "string" && showImage.trim() ? showImage.trim() : null;
   const articles: ParsedArticle[] = (raw.items ?? []).map((item) => {
     const it = item as unknown as Record<string, unknown>;
     const title = typeof it.title === "string" ? it.title.trim() || "(untitled)" : "(untitled)";
@@ -122,8 +189,11 @@ export async function parseFeed(xml: string): Promise<ParsedFeed> {
       publishedAt: parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null,
       contentHtml,
       summary: rawContent ? rawSummary : contentHtml ? null : rawSummary,
-      imageUrl: mediaUrl(it),
+      imageUrl: imageUrl(it, showArt),
       categories: articleCategories(it),
+      media: playableMedia(it),
+      transcript: bestTranscript(it),
+      chaptersUrl: chaptersUrl(it),
     };
   });
   return {

@@ -1,4 +1,4 @@
-import type { ParsedArticle, ParsedFeed } from "./types.js";
+import type { ArticleMedia, ParsedArticle, ParsedFeed } from "./types.js";
 import { limitCategories } from "./categories.js";
 
 const UNTITLED_MAX_CHARS = 80;
@@ -43,6 +43,14 @@ function imageUrl(item: Json): string | null {
   return image ? str(image.url) : null;
 }
 
+/** JSON Feed podcasts carry the episode as an audio or video attachment. */
+function playableAttachment(item: Json): ArticleMedia | null {
+  const attachments = Array.isArray(item.attachments) ? item.attachments as Json[] : [];
+  const media = attachments.find((a) => typeof a?.mime_type === "string" && /^(audio|video)\//.test(a.mime_type));
+  const url = media ? str(media.url) : null;
+  return url ? { url, type: str(media!.mime_type) } : null;
+}
+
 /** Parse a JSON Feed (https://jsonfeed.org, versions 1 and 1.1). */
 export function parseJsonFeed(text: string): ParsedFeed {
   let doc: unknown;
@@ -72,6 +80,7 @@ export function parseJsonFeed(text: string): ParsedFeed {
       contentHtml: str(item.content_html) ?? str(item.content_text),
       summary: str(item.summary),
       imageUrl: imageUrl(item),
+      media: playableAttachment(item),
       categories: limitCategories(Array.isArray(item.tags) ? item.tags.filter((t): t is string => typeof t === "string") : []),
     });
   }
