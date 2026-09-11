@@ -1,35 +1,38 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { redditAdapter } from "../src/ingestors/reddit.js";
-const testCtx: import("../src/ingestors/types.js").AdapterContext = { storage: {} as never, userId: "u1" };
+import { createSqliteStorage } from "../src/storage/sqlite.js";
+import type { Storage } from "../src/storage/types.js";
+import type { AdapterContext } from "../src/ingestors/types.js";
 
 let server: Server;
 let baseUrl: string;
 let tokenCalls: number;
-let lastAuthHeader: string | null;
-let lastTokenBody: string;
+let listingAuth: (string | undefined)[];
+/** The access token the fake API currently accepts. */
+let validToken: string;
+let storage: Storage;
+let ctx: AdapterContext;
 
 const LISTING = { data: { children: [{ data: { name: "t3_x1", title: "Post", selftext: "", author: "a", permalink: "/r/test/comments/x1/post/", url: "https://example.com", created_utc: 1783000000, is_self: false } }], after: null } };
 
-async function start() {
+beforeEach(async () => {
   tokenCalls = 0;
+  listingAuth = [];
+  validToken = "at-0";
   server = createServer((req, res) => {
     const u = new URL(req.url ?? "/", "http://x");
     if (u.pathname === "/api/v1/access_token") {
       tokenCalls++;
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
-        lastTokenBody = body;
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ access_token: `tok-${tokenCalls}`, token_type: "bearer", expires_in: 3600 }));
-      });
+      validToken = `at-${tokenCalls}`;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ access_token: validToken, expires_in: 3600 }));
       return;
     }
     if (u.pathname.endsWith(".json")) {
-      lastAuthHeader = req.headers.authorization ?? null;
-      if (!lastAuthHeader?.startsWith("Bearer tok-")) { res.writeHead(401).end(); return; }
+      listingAuth.push(req.headers.authorization);
+      if (req.headers.authorization !== `Bearer ${validToken}`) { res.writeHead(401).end(); return; }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(LISTING));
       return;
@@ -38,63 +41,50 @@ async function start() {
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-}
-afterEach(async () => { await new Promise((r) => server.close(r)); });
+  storage = createSqliteStorage(":memory:");
+  ctx = { storage, userId: storage.getOrCreateLocalUser().id };
+});
 
-describe("reddit oauth", () => {
-  it("client_credentials grant: gets token, calls oauth base with bearer", async () => {
-    await start();
-    const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", _baseUrl: baseUrl, _oauthBase: baseUrl, _tokenBase: baseUrl, _cacheKey: "rc1" };
-    const result = await redditAdapter.fetch(cfg, null, testCtx);
-    expect(tokenCalls).toBe(1);
-    expect(lastTokenBody).toContain("grant_type=client_credentials");
-    expect(lastAuthHeader).toBe("Bearer tok-1");
+afterEach(async () => {
+  storage.close();
+  await new Promise((r) => server.close(r));
+});
+
+function connect(accessToken: string, expiresInMs: number) {
+  return storage.createCredential(ctx.userId, {
+    provider: "reddit", label: "u/ann", origin: baseUrl,
+    secret: {
+      kind: "oauth2", tokenUrl: `${baseUrl}/api/v1/access_token`, clientId: "cid", clientSecret: "sec",
+      accessToken, refreshToken: "rt", expiresAt: new Date(Date.now() + expiresInMs).toISOString(),
+    },
+  });
+}
+
+describe("reddit with a connected account", () => {
+  it("reads the OAuth API with the account's token", async () => {
+    const cred = connect("at-0", 3_600_000);
+    const result = await redditAdapter.fetch({ subreddit: "test", credentialId: cred.id, _oauthBase: baseUrl }, null, ctx);
+    expect(listingAuth).toEqual(["Bearer at-0"]);
+    expect(tokenCalls).toBe(0);
     expect(result.items).toHaveLength(1);
   });
 
-  it("password grant when username+password present", async () => {
-    await start();
-    const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", username: "u", password: "p", _baseUrl: baseUrl, _oauthBase: baseUrl, _tokenBase: baseUrl, _cacheKey: "rc2" };
-    await redditAdapter.fetch(cfg, null, testCtx);
-    expect(lastTokenBody).toContain("grant_type=password");
-    expect(lastTokenBody).toContain("username=u");
-  });
-
-  it("caches token across fetches", async () => {
-    await start();
-    const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", _baseUrl: baseUrl, _oauthBase: baseUrl, _tokenBase: baseUrl, _cacheKey: "rc3" };
-    await redditAdapter.fetch(cfg, null, testCtx);
-    await redditAdapter.fetch(cfg, null, testCtx);
+  it("refreshes an expired token before fetching", async () => {
+    const cred = connect("at-stale", -1000);
+    await redditAdapter.fetch({ subreddit: "test", credentialId: cred.id, _oauthBase: baseUrl }, null, ctx);
     expect(tokenCalls).toBe(1);
+    expect(listingAuth).toEqual(["Bearer at-1"]);
   });
 
-  it("force-refreshes the token and retries once on a 401 listing response", async () => {
-    let calls = 0;
-    const strict = createServer((req, res) => {
-      const u = new URL(req.url ?? "/", "http://x");
-      if (u.pathname === "/api/v1/access_token") {
-        calls++;
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ access_token: `tok-${calls}`, token_type: "bearer", expires_in: 3600 }));
-        return;
-      }
-      if (u.pathname.endsWith(".json")) {
-        if (calls < 2 || req.headers.authorization !== `Bearer tok-${calls}`) { res.writeHead(401).end(); return; }
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify(LISTING));
-        return;
-      }
-      res.writeHead(404).end();
-    });
-    await new Promise<void>((r) => strict.listen(0, "127.0.0.1", r));
-    try {
-      const base = `http://127.0.0.1:${(strict.address() as AddressInfo).port}`;
-      const cfg = { subreddit: "test", clientId: "cid", clientSecret: "sec", _oauthBase: base, _tokenBase: base, _cacheKey: "rc401" };
-      const result = await redditAdapter.fetch(cfg, null, testCtx);
-      expect(calls).toBe(2);
-      expect(result.items).toHaveLength(1);
-    } finally {
-      await new Promise((r) => strict.close(r));
-    }
+  it("force-refreshes and retries once when the API rejects a live token", async () => {
+    const cred = connect("at-revoked", 3_600_000);
+    const result = await redditAdapter.fetch({ subreddit: "test", credentialId: cred.id, _oauthBase: baseUrl }, null, ctx);
+    expect(listingAuth).toEqual(["Bearer at-revoked", "Bearer at-1"]);
+    expect(result.items).toHaveLength(1);
+  });
+
+  it("rejects the old inline secrets", async () => {
+    await expect(redditAdapter.validate({ subreddit: "test", clientId: "c", clientSecret: "s" }, ctx)).rejects.toThrow(/connect a Reddit account/);
+    await expect(redditAdapter.validate({ subreddit: "test" }, ctx)).resolves.toBe("r/test");
   });
 });

@@ -1,76 +1,37 @@
 import { fetchCapped } from "../fetch.js";
+import { authorizationFor } from "../auth/credentials.js";
 import type { IngestorAdapter } from "./types.js";
 
-interface TokenEntry { token: string; expiresAt: number }
-const tokenCache = new Map<string, TokenEntry>();
-
-function pruneExpired(cache: Map<string, TokenEntry>): void {
-  const now = Date.now();
-  for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
-}
-
-function redditCreds(config: Record<string, unknown>): { clientId: string; clientSecret: string; username?: string; password?: string } | null {
-  const clientId = (config.clientId as string) ?? process.env.REDDIT_CLIENT_ID;
-  const clientSecret = (config.clientSecret as string) ?? process.env.REDDIT_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-  const username = (config.username as string) ?? process.env.REDDIT_USERNAME;
-  const password = (config.password as string) ?? process.env.REDDIT_PASSWORD;
-  return { clientId, clientSecret, ...(username && password ? { username, password } : {}) };
-}
-
-async function getToken(config: Record<string, unknown>, tokenBase: string, cacheKey: string, force: boolean): Promise<string> {
-  const creds = redditCreds(config)!;
-  const hit = tokenCache.get(cacheKey);
-  if (!force && hit && hit.expiresAt > Date.now() + 60_000) return hit.token;
-  const body = new URLSearchParams(
-    creds.username
-      ? { grant_type: "password", username: creds.username, password: creds.password! }
-      : { grant_type: "client_credentials" },
-  );
-  const res = await fetch(`${tokenBase}/api/v1/access_token`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      authorization: `Basic ${Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString("base64")}`,
-      "user-agent": "reader/0.1 (feed reader)",
-    },
-    body: body.toString(),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`reddit auth failed: HTTP ${res.status}`);
-  const data = (await res.json()) as { access_token: string; expires_in: number };
-  pruneExpired(tokenCache);
-  tokenCache.set(cacheKey, { token: data.access_token, expiresAt: Date.now() + (data.expires_in - 120) * 1000 });
-  return data.access_token;
-}
+// Sign-in moved to connected accounts (OAuth); these keys once held inline secrets.
+const LEGACY_AUTH_KEYS = ["clientId", "clientSecret", "username", "password"];
 
 export const redditAdapter: IngestorAdapter = {
   async validate(config) {
     if (!config.subreddit) throw new Error("reddit config requires subreddit");
+    if (LEGACY_AUTH_KEYS.some((key) => key in config)) {
+      throw new Error("reddit no longer takes a client secret or password; connect a Reddit account and pass its credentialId");
+    }
     return `r/${config.subreddit}`;
   },
-  async fetch(config, cursor) {
-    const creds = redditCreds(config);
-    let base = (config._baseUrl as string) ?? "https://www.reddit.com";
-    const headers: Record<string, string> = { "user-agent": "reader/0.1 (feed reader)" };
-    const cacheKey = creds ? ((config._cacheKey as string) ?? creds.clientId) : "";
-    const tokenBase = (config._tokenBase as string) ?? "https://www.reddit.com";
-    if (creds) {
-      const token = await getToken(config, tokenBase, cacheKey, false);
-      base = (config._oauthBase as string) ?? "https://oauth.reddit.com";
-      headers.authorization = `Bearer ${token}`;
-    }
+  async fetch(config, cursor, ctx) {
+    const credentialId = config.credentialId as string | undefined;
+    // Signed requests go to the OAuth API host; anonymous ones to the public site.
+    const base = credentialId
+      ? (config._oauthBase as string) ?? "https://oauth.reddit.com"
+      : (config._baseUrl as string) ?? "https://www.reddit.com";
     const sort = (config.sort as string) ?? "new";
     const params = new URLSearchParams({ limit: "25" });
     if (cursor?.after) params.set("after", String(cursor.after));
     const url = `${base}/r/${encodeURIComponent(String(config.subreddit))}/${sort}.json?${params}`;
-    const fetchListing = () => fetchCapped(url, { maxBytes: 5 * 1024 * 1024, headers });
-    let res = await fetchListing();
-    if (res.status === 401 && creds) {
-      const token = await getToken(config, tokenBase, cacheKey, true);
-      headers.authorization = `Bearer ${token}`;
-      res = await fetchListing();
-    }
+    const fetchListing = async (forceRefresh: boolean) => fetchCapped(url, {
+      maxBytes: 5 * 1024 * 1024,
+      headers: {
+        "user-agent": "reader/0.1 (feed reader)",
+        ...(credentialId ? { authorization: await authorizationFor(ctx.storage, credentialId, url, { forceRefresh }) } : {}),
+      },
+    });
+    let res = await fetchListing(false);
+    if (res.status === 401 && credentialId) res = await fetchListing(true);
     if (res.status !== 200) throw new Error(`reddit fetch failed: HTTP ${res.status}`);
     const listing = JSON.parse(res.body) as { data: { children: { data: Record<string, unknown> }[]; after: string | null } };
     const items = listing.data.children.map((c) => {

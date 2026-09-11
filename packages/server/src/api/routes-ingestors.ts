@@ -16,7 +16,7 @@ interface PatchBody {
 const KINDS = ["mastodon", "bluesky", "reddit", "composite"];
 const DIGEST_MODES = ["realtime", "hourly", "daily"];
 
-const SECRET_KEYS = new Set(["appPassword", "clientSecret", "password"]);
+const SECRET_KEYS = new Set(["appPassword"]);
 
 /**
  * Remove `_`-prefixed keys from a client-supplied config. Adapters honor keys

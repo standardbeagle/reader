@@ -94,3 +94,32 @@ describe("ingestor storage", () => {
     expect(storage.getFeed(feedId)).not.toBeNull();
   });
 });
+
+describe("migration 0009", () => {
+  it("strips inline Reddit secrets and leaves other kinds alone", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { default: Database } = await import("better-sqlite3");
+    const dir = mkdtempSync(join(tmpdir(), "reader-mig-"));
+    const path = join(dir, "reader.db");
+    try {
+      const before = createSqliteStorage(path);
+      const uid = before.getOrCreateLocalUser().id;
+      const redditFeed = before.createFeed(uid, { url: "ingestor://reddit/r/a", title: "r/a", siteUrl: null }).id;
+      const blueskyFeed = before.createFeed(uid, { url: "ingestor://bluesky/handle/b", title: "b", siteUrl: null }).id;
+      const reddit = before.createIngestor(uid, { kind: "reddit", config: { subreddit: "a", sort: "top", clientId: "c", clientSecret: "s", username: "u", password: "p" }, feedId: redditFeed });
+      const bluesky = before.createIngestor(uid, { kind: "bluesky", config: { handle: "b", appPassword: "keep" }, feedId: blueskyFeed });
+      before.close();
+      const raw = new Database(path);
+      raw.prepare("DELETE FROM schema_migrations WHERE name = ?").run("0009_reddit_connected_accounts.sql");
+      raw.close();
+      const after = createSqliteStorage(path);
+      expect(after.getIngestor(reddit.id)!.config).toEqual({ subreddit: "a", sort: "top" });
+      expect(after.getIngestor(bluesky.id)!.config).toEqual({ handle: "b", appPassword: "keep" });
+      after.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
