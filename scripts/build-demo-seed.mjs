@@ -26,6 +26,24 @@ const FEED_URLS = [
 ];
 const [dbPath = "packages/server/reader.db", apiBase = null] = process.argv.slice(2);
 const EPISODES_WITH_EXTRAS = 3;
+// The demo's public list shows what a public list is for: the things in one
+// topic you'd pass on to others, picked from everything you read. These are
+// editorial picks; when the feeds roll over, pick again (the script fails if
+// one is gone rather than publish a thinner list).
+const CURATED_LIST = {
+  id: "demo-list-neat-stuff",
+  title: "Neat stuff",
+  token: "neat-stuff",
+  urls: [
+    "http://www.iaea.org/newscenter/news/what-is-cherenkov-radiation",
+    "https://vale.rocks/posts/css-relics",
+    "https://www.upsocl.com/en/16-year-old-mexican-student-creates-an-acoustic-fire-extinguisher-that-uses-sound-waves-to-put-out-fires-in-seconds/",
+    "https://www.nasa.gov/image-detail/hubble-n44-wfc3-large/",
+    "https://www.nasa.gov/image-detail/amf-nhq202606170001/",
+    "https://www.youtube.com/watch?v=0Rp9KJCEIvg",
+    "https://daringfireball.net/linked/2026/09/08/modern-day-typographer",
+  ],
+};
 const MAX_TRANSCRIPT_CUES = 150;
 const PER_FEED = 15;
 const MAX_BODY = 1500;
@@ -48,6 +66,20 @@ for (const feed of feeds) {
      FROM articles a JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
      WHERE a.feed_id = ? ORDER BY a.published_at DESC LIMIT ?`,
   ).all(user.id, feed.id, PER_FEED);
+  // Curated picks stay in the seed even after newer items push them out of the window.
+  for (const url of CURATED_LIST.urls) {
+    if (rows.some((r) => r.url === url)) continue;
+    const pick = db.prepare(
+      `SELECT a.id, a.feed_id AS feedId, a.title, a.url, a.author, a.published_at AS publishedAt,
+              a.content_html AS contentHtml, a.summary, a.image_url AS imageUrl, a.categories,
+              a.media_url AS mediaUrl, a.media_type AS mediaType, a.transcript_url AS transcriptUrl,
+              a.transcript_type AS transcriptType, a.chapters_url AS chaptersUrl,
+              ua.read_at AS readAt
+       FROM articles a JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
+       WHERE a.feed_id = ? AND a.url = ?`,
+    ).get(user.id, feed.id, url);
+    if (pick) rows.push(pick);
+  }
   rows.forEach((row, i) => {
     let body = row.contentHtml;
     if (body && body.length > MAX_BODY) {
@@ -76,13 +108,17 @@ for (const feed of feeds) {
 articles.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
 
 const list = {
-  id: "demo-list-read-later",
-  title: "Read later",
+  id: CURATED_LIST.id,
+  title: CURATED_LIST.title,
   visibility: "public",
-  token: "demo-read-later",
+  token: CURATED_LIST.token,
   createdAt: new Date().toISOString(),
 };
-const listItems = articles.filter((_, i) => i % 17 === 0).map((a) => a.id);
+const listItems = CURATED_LIST.urls.map((url) => {
+  const hit = articles.find((a) => a.url === url);
+  if (!hit) throw new Error(`curated pick no longer in the demo feeds: ${url}`);
+  return hit.id;
+});
 
 // Chapters and transcripts for the newest episodes, as the server serves them.
 const podcastExtras = {};
@@ -100,12 +136,26 @@ if (apiBase) {
     podcastExtras[episode.id] = { chapters, transcript };
   }
 }
+// Framing checks for every article, so the demo's Embedded page tab behaves
+// as it would against a real server.
+const embeddability = {};
+if (apiBase) {
+  const queue = [...articles];
+  await Promise.all(Array.from({ length: 6 }, async () => {
+    for (let a; (a = queue.shift()); ) {
+      if (!a.url) continue;
+      const res = await fetch(`${apiBase}/api/v1/articles/${a.id}/embeddable`);
+      if (res.ok) embeddability[a.id] = await res.json();
+    }
+  }));
+}
 // Episodes without bundled extras must not offer sections the demo cannot fill.
 for (const a of articles) {
   if (a.media && !podcastExtras[a.id]) { a.transcript = null; a.chaptersUrl = null; }
 }
 
-const seed = { feeds, articles, lists: [list], listItems, podcastExtras };
+const seed = { feeds, articles, lists: [list], listItems, podcastExtras, embeddability };
 writeFileSync("apps/web/src/demo/seed.json", JSON.stringify(seed));
 const kb = Math.round(JSON.stringify(seed).length / 1024);
-console.log(`feeds=${feeds.length} articles=${articles.length} listItems=${listItems.length} episodesWithExtras=${Object.keys(podcastExtras).length} size=${kb}KB`);
+const blocked = Object.values(embeddability).filter((e) => e.embeddable === false).length;
+console.log(`feeds=${feeds.length} articles=${articles.length} listItems=${listItems.length} episodesWithExtras=${Object.keys(podcastExtras).length} framingChecked=${Object.keys(embeddability).length} framingBlocked=${blocked} size=${kb}KB`);

@@ -34,7 +34,8 @@ interface Seed {
 
 const seed = rawSeed as unknown as Seed;
 
-const STORE_KEY = "reader.demo.v1";
+// v2: the seed's list changed, and the overlay keeps its own copy of lists.
+const STORE_KEY = "reader.demo.v2";
 
 interface DemoState {
   v: 1;
