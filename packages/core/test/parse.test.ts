@@ -114,6 +114,18 @@ describe("parseFeed", () => {
     });
   });
 
+  it("finds where older items continue (RFC 5005 paging and archives)", async () => {
+    const rss = await parseFeed(`<?xml version="1.0"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>R</title><link>https://r.example/</link>
+      <atom:link rel="self" href="https://r.example/feed"/><atom:link rel="prev-archive" href="/2025.xml"/><atom:link rel="next" href="/feed?page=2"/></channel></rss>`);
+    expect(rss.olderUrl).toBe("/feed?page=2");
+    expect(rss.siteUrl).toBe("https://r.example/");
+    const atom = await parseFeed(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>A</title>
+      <link rel="alternate" href="https://a.example/"/><link rel="prev-archive" href="https://a.example/2025.xml"/></feed>`);
+    expect(atom.olderUrl).toBe("https://a.example/2025.xml");
+    expect(atom.siteUrl).toBe("https://a.example/");
+    expect((await parseFeed(fixture("rss2.xml"))).olderUrl).toBeNull();
+  });
+
   it("synthesizes a stable guid when missing", async () => {
     const a = await parseFeed(fixture("no-guid.xml"));
     const b = await parseFeed(fixture("no-guid.xml"));

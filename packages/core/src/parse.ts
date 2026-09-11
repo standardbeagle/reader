@@ -7,7 +7,14 @@ import { parseJsonFeed } from "./json-feed.js";
 
 const parser = new Parser({
   customFields: {
-    feed: ["ttl", "sy:updatePeriod", "sy:updateFrequency"],
+    // Feed-level links: RSS carries them as atom:link, Atom as link. rss-parser
+    // accepts [field, key, options] for feeds at runtime, but its typings only
+    // declare plain names.
+    feed: [
+      "ttl", "sy:updatePeriod", "sy:updateFrequency",
+      ["atom:link", "atomLinks", { keepArray: true }],
+      ["link", "links", { keepArray: true }],
+    ] as unknown as string[],
     item: [
       ["media:thumbnail", "media:thumbnail", { keepArray: true }],
       ["media:content", "media:content", { keepArray: true }],
@@ -149,6 +156,20 @@ function updateHintMinutes(feed: Record<string, unknown>): number | null {
   return period / Math.max(1, frequency);
 }
 
+/**
+ * RFC 5005: a paged feed's rel="next" leads to older entries; an archived
+ * feed's rel="prev-archive" to the previous archive document. Paging wins
+ * when both are present because it is the finer-grained walk.
+ */
+function olderUrl(feed: Record<string, unknown>): string | null {
+  const links = [...listOf(feed.atomLinks), ...listOf(feed.links)].map(attrsOf);
+  const href = (rel: string) => {
+    const hit = links.find((l) => String(l.rel ?? "").toLowerCase() === rel && typeof l.href === "string" && l.href.trim());
+    return hit ? String(hit.href).trim() : null;
+  };
+  return href("next") ?? href("prev-archive");
+}
+
 // The transitive XML stack does not expand custom entities today, but a DOCTYPE
 // internal subset is the XXE / billion-laughs vector — reject it explicitly so a
 // future parser or option change cannot silently reintroduce the exposure. The
@@ -201,5 +222,6 @@ export async function parseFeed(xml: string): Promise<ParsedFeed> {
     siteUrl: raw.link ?? null,
     articles,
     updateHintMinutes: updateHintMinutes(raw as unknown as Record<string, unknown>),
+    olderUrl: olderUrl(raw as unknown as Record<string, unknown>),
   };
 }

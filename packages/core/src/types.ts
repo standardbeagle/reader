@@ -29,4 +29,9 @@ export interface ParsedFeed {
   articles: ParsedArticle[];
   /** The publisher's own minimum refresh interval (RSS <ttl>, sy:updatePeriod/Frequency), in minutes. */
   updateHintMinutes?: number | null;
+  /**
+   * Where older items continue (RFC 5005 rel="next" or rel="prev-archive",
+   * JSON Feed next_url), possibly relative to the feed URL.
+   */
+  olderUrl?: string | null;
 }

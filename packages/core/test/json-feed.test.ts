@@ -25,6 +25,8 @@ describe("JSON Feed", () => {
     }]));
     expect(parsed.title).toBe("JSON Blog");
     expect(parsed.siteUrl).toBe("https://json.example.com/");
+    expect(parsed.olderUrl).toBeNull();
+    expect((await parseFeed(feed([], { next_url: "https://json.example.com/feed.json?page=2" }))).olderUrl).toBe("https://json.example.com/feed.json?page=2");
     expect(parsed.articles).toEqual([{
       guid: "https://json.example.com/p/1",
       url: "https://json.example.com/p/1",

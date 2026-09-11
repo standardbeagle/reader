@@ -84,5 +84,5 @@ export function parseJsonFeed(text: string): ParsedFeed {
       categories: limitCategories(Array.isArray(item.tags) ? item.tags.filter((t): t is string => typeof t === "string") : []),
     });
   }
-  return { title: str(feed.title) ?? "(untitled feed)", siteUrl: str(feed.home_page_url), articles };
+  return { title: str(feed.title) ?? "(untitled feed)", siteUrl: str(feed.home_page_url), articles, olderUrl: str(feed.next_url) };
 }
