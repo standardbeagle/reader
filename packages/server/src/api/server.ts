@@ -6,6 +6,8 @@ import { registerIngestorRoutes } from "./routes-ingestors.js";
 import { registerListRoutes } from "./routes-lists.js";
 import { registerAuthRoutes } from "./routes-auth.js";
 import { registerPodcastRoutes } from "./routes-podcast.js";
+import { RealtimeHub } from "../realtime/hub.js";
+import { DEFAULT_PODPING_URL } from "../realtime/podping.js";
 import { IngestorEngine, type FetchFn } from "../ingestors/engine.js";
 import { createOpenRouterClient, type LlmClient } from "../llm/client.js";
 
@@ -16,6 +18,8 @@ export interface ServerOptions {
   ingestorAdapters?: Record<string, FetchFn>;
   llm?: LlmClient | null;
   ingestorTickMs?: number;
+  /** Podping relay URL; null disables it. Defaults to READER_PODPING_URL or the public relay. */
+  podpingUrl?: string | null;
 }
 
 const BACKGROUND_START_DELAY_MS = 8_000;
@@ -79,6 +83,13 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   registerListRoutes(app, storage);
   registerAuthRoutes(app, storage);
   registerPodcastRoutes(app, storage);
+  // READER_PODPING=off disables Podping; READER_PODPING_URL picks another relay.
+  const realtime = new RealtimeHub(storage, poller, {
+    podpingUrl: opts.podpingUrl !== undefined ? opts.podpingUrl
+      : process.env.READER_PODPING === "off" ? null : process.env.READER_PODPING_URL ?? DEFAULT_PODPING_URL,
+  });
+  if (opts.poller !== false) realtime.start();
+  app.get("/api/v1/realtime", async () => realtime.status());
   const webDist = process.env.READER_WEB_DIST;
   if (webDist) {
     const { default: fastifyStatic } = await import("@fastify/static");
@@ -94,6 +105,7 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
     if (engineTimer) clearInterval(engineTimer);
     if (engineStartupTimer) clearTimeout(engineStartupTimer);
     poller.stop();
+    realtime.stop();
     storage.close();
   });
   return app;

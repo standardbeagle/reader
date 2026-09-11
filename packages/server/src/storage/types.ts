@@ -180,6 +180,8 @@ export interface Storage {
   getFeed(id: string): Feed | null;
   deleteFeed(id: string): void;
   dueFeeds(now: Date): Feed[];
+  /** Feeds with at least one playable episode — the ones Podping can announce. */
+  podcastFeeds(): { id: string; url: string }[];
   updateFeedFetchState(id: string, state: FetchState): void;
   upsertArticles(feedId: string, articles: ParsedArticle[], sanitize: (html: string, baseUrl?: string) => string, baseUrl?: string): Article[];
   listArticles(q: ArticleQuery): ArticleWithState[];

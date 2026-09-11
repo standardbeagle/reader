@@ -219,6 +219,14 @@ export function createSqliteStorage(path: string): Storage {
       return rows.map(rowToFeed);
     },
 
+    podcastFeeds() {
+      return db.prepare(`
+        SELECT f.id, f.url FROM feeds f
+        WHERE f.url NOT LIKE 'ingestor://%'
+          AND EXISTS (SELECT 1 FROM articles a WHERE a.feed_id = f.id AND a.media_url IS NOT NULL)
+      `).all() as { id: string; url: string }[];
+    },
+
     updateFeedFetchState(id, state: FetchState) {
       db.prepare(`
         UPDATE feeds SET
