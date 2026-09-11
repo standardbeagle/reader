@@ -61,3 +61,20 @@ export function plainTextToHtml(value: string): string {
     .map((paragraph) => `<p class="feed-plain-text">${escapeHtml(paragraph).replaceAll("\n", "<br>")}</p>`)
     .join("");
 }
+
+const UNTITLED_MAX_CHARS = 80;
+
+/** A title for an untitled post (microblog, note): its first line, cut at a word boundary. */
+export function titleFromText(text: string | null | undefined): string | null {
+  const firstLine = text?.trim().split("\n")[0]?.trim();
+  if (!firstLine) return null;
+  if (firstLine.length <= UNTITLED_MAX_CHARS) return firstLine;
+  const cut = firstLine.slice(0, UNTITLED_MAX_CHARS);
+  const space = cut.lastIndexOf(" ");
+  return `${space > 0 ? cut.slice(0, space) : cut}…`;
+}
+
+/** A whole HTML document (as opposed to a fragment inside a feed). */
+export function isHtmlDocument(body: string): boolean {
+  return /^\s*(<!doctype\s+html|<html[\s>])/i.test(body.replace(/^\uFEFF/, ""));
+}

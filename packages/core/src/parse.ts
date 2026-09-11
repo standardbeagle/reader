@@ -1,7 +1,8 @@
 import Parser from "rss-parser";
 import { createHash } from "node:crypto";
 import type { ArticleMedia, ParsedFeed, ParsedArticle } from "./types.js";
-import { looksLikeHtml } from "./content.js";
+import { isHtmlDocument, looksLikeHtml } from "./content.js";
+import { parseHFeed } from "./h-feed.js";
 import { limitCategories } from "./categories.js";
 import { parseJsonFeed } from "./json-feed.js";
 
@@ -177,11 +178,19 @@ function olderUrl(feed: Record<string, unknown>): string | null {
 const MAX_FEED_CHARS = 8 * 1024 * 1024;
 const DOCTYPE_SUBSET = /<!DOCTYPE[^>[]*\[/i;
 
-export async function parseFeed(xml: string): Promise<ParsedFeed> {
+/**
+ * Parse RSS, Atom, JSON Feed, or an h-feed HTML page. `url` is where the
+ * document came from; HTML needs it to resolve relative links.
+ */
+export async function parseFeed(xml: string, opts: { url?: string } = {}): Promise<ParsedFeed> {
   if (xml.length > MAX_FEED_CHARS) throw new Error("feed too large to parse");
   // JSON Feed documents are objects; nothing XML-shaped starts with "{".
   const body = xml.replace(/^\uFEFF/, "").trimStart();
   if (body.startsWith("{")) return parseJsonFeed(body);
+  if (isHtmlDocument(body)) {
+    if (!opts.url) throw new Error("an HTML page needs its URL to be read as an h-feed");
+    return parseHFeed(body, opts.url);
+  }
   if (DOCTYPE_SUBSET.test(xml)) throw new Error("feed contains a DOCTYPE internal subset");
   const raw = await parser.parseString(xml);
   const showImage = (raw as unknown as { itunes?: { image?: unknown } }).itunes?.image;

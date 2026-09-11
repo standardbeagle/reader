@@ -1,7 +1,6 @@
 import type { ArticleMedia, ParsedArticle, ParsedFeed } from "./types.js";
 import { limitCategories } from "./categories.js";
-
-const UNTITLED_MAX_CHARS = 80;
+import { titleFromText } from "./content.js";
 
 type Json = Record<string, unknown>;
 
@@ -16,13 +15,7 @@ function date(v: unknown): Date | null {
 
 /** Microblog items often have no title; use the start of the text instead. */
 function titleFrom(item: Json): string {
-  const explicit = str(item.title);
-  if (explicit) return explicit;
-  const firstLine = str(item.content_text)?.split("\n")[0]?.trim() ?? str(item.summary);
-  if (!firstLine) return "(untitled)";
-  if (firstLine.length <= UNTITLED_MAX_CHARS) return firstLine;
-  const cut = firstLine.slice(0, UNTITLED_MAX_CHARS);
-  return `${cut.slice(0, cut.lastIndexOf(" ") > 0 ? cut.lastIndexOf(" ") : UNTITLED_MAX_CHARS)}…`;
+  return str(item.title) ?? titleFromText(str(item.content_text) ?? str(item.summary)) ?? "(untitled)";
 }
 
 /** 1.1 has authors[]; 1.0 had a single author object. */
