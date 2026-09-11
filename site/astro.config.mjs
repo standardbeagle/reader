@@ -19,6 +19,7 @@ export default defineConfig({
         },
       ],
       sidebar: [
+        { label: "Features", slug: "features" },
         { label: "Quick start", slug: "getting-started" },
         {
           label: "User guide",

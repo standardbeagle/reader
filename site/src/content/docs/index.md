@@ -11,6 +11,9 @@ hero:
     - text: Try the demo
       link: /reader/demo/
       icon: right-arrow
+    - text: Features
+      link: /reader/features/
+      variant: minimal
     - text: Quick start
       link: /reader/getting-started/
       variant: minimal
@@ -62,12 +65,15 @@ digests tomorrow.
 
 ## See it
 
+![A Podcasting 2.0 episode with chapters, playing in reader](../../assets/screenshots/podcast-episode.png)
+
 ![Image-led pinboard view of a feed](../../assets/screenshots/pinboard.png)
 
 ![Reading an article on a phone, with swipe navigation and unread indicators](../../assets/screenshots/mobile-article.png)
 
 ## Where to go next
 
+- [Features](/reader/features/) — everything reader does, with screenshots.
 - [Quick start](/reader/getting-started/) — run the web app or the desktop app.
 - [Adding sources](/reader/user/sources/) — formats, private feeds, OPML and YouTube imports.
 - [User guide](/reader/user/reading/) — the three-pane UI, filters, and navigation.
