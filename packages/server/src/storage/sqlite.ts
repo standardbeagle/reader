@@ -7,7 +7,7 @@ import type {
   NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount,
   Credential, CredentialSecret,
 } from "./types.js";
-import { looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
+import { decodeHtmlEntities, looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
 
 const LOCAL_USER_EMAIL = "local@reader";
 
@@ -124,7 +124,9 @@ export function createSqliteStorage(path: string): Storage {
       : promotedSummary;
     return {
       id: r.id as string, feedId: r.feed_id as string, guid: r.guid as string,
-      url: (r.url as string) ?? null, title: r.title as string,
+      // The parser decodes entities in titles now; rows stored before that
+      // (and gone from their feed, so never rewritten) are decoded here.
+      url: (r.url as string) ?? null, title: decodeHtmlEntities(r.title as string),
       author: (r.author as string) ?? null,
       publishedAt: (r.published_at as string) ?? null,
       contentHtml,

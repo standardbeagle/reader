@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { createSqliteStorage } from "../src/storage/sqlite.js";
+import { sanitizeHtml } from "@reader/core";
 import type { Storage } from "../src/storage/types.js";
 
 let storage: Storage;
@@ -262,5 +263,14 @@ describe("sqlite storage", () => {
     ], identity);
     storage.deleteFeed(feed.id);
     expect(storage.listArticles({ userId, limit: 50 })).toHaveLength(0);
+  });
+
+  it("decodes entities in titles stored before the parser decoded them", () => {
+    const legacy = createSqliteStorage(":memory:");
+    const uid = legacy.getOrCreateLocalUser().id;
+    const feed = legacy.createFeed(uid, { url: "https://t.example/feed", title: "T", siteUrl: null });
+    legacy.upsertArticles(feed.id, [{ guid: "g", url: null, title: "Samsung says &#8216;Tim Cook&#8217; bought one", author: null, publishedAt: null, contentHtml: null, summary: null }], sanitizeHtml);
+    expect(legacy.listArticles({ userId: uid, limit: 5 })[0]!.title).toBe("Samsung says ‘Tim Cook’ bought one");
+    legacy.close();
   });
 });
