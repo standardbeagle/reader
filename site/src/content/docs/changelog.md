@@ -5,6 +5,24 @@ description: Notable changes to reader, newest first.
 
 ## Unreleased
 
+- **Real-time updates** — Mastodon sources with a connected account and
+  Bluesky account sources now receive posts as they are published, over the
+  Mastodon streaming API and Bluesky's Jetstream. Podcasts refresh as soon as
+  their host announces a new episode on [Podping](https://podping.org). All
+  three are outbound connections; polling still runs underneath.
+- **Podcasts** — episodes play in the reader, with Podcasting 2.0 chapters
+  and transcripts; picking either seeks the player. Episode art is used as
+  the image.
+- **Fix:** podcast episodes stored their audio file as the article image.
+  Existing ones are repaired on upgrade.
+- **History backfill** — feeds that link to older pages (RFC 5005 paging or
+  archives, JSON Feed `next_url`) fill in up to ten pages of history when you
+  subscribe. Backfilled items arrive marked read.
+- **IndieWeb h-feed** — sites that mark their posts up as `h-entry` can be
+  followed even without RSS. Discovery offers the page after any real feed.
+- **Politer polling** — Reader honors `Retry-After` on 429/503 responses and
+  never polls faster than a feed's `<ttl>`, syndication hint or
+  `Cache-Control: max-age`.
 - **JSON Feed** — feeds published as [JSON Feed](https://jsonfeed.org) 1.0
   or 1.1 now subscribe and refresh like RSS and Atom. Discovery listed them
   before but could not read them. Untitled microblog posts take their title

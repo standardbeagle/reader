@@ -22,14 +22,29 @@ the server. Defaults are loopback-safe.
 | `OPENROUTER_API_KEY` | unset | Enables LLM filtering and digest summaries for ingestors. Without it, filtering fails closed (nothing is dropped) |
 | `READER_LLM_MODEL` | server default | OpenRouter model for filter/summarize |
 
+## Real-time streams
+
+Reader opens outbound WebSockets. Nothing connects in, so they work on a
+loopback-only server. Each stream opens only while some subscription needs it,
+and polling continues underneath. `GET /api/v1/realtime` shows their state.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `READER_PODPING` / `READER_PODPING_URL` | on / `wss://api.livewire.io/ws/podping` | Podping relay for podcast update notifications. Set `READER_PODPING=off` to disable. The default relay is run by a third party (Livewire) |
+| `READER_JETSTREAM` / `READER_JETSTREAM_URL` | on / `wss://jetstream2.us-east.bsky.network/subscribe` | Bluesky Jetstream for account sources. `off` disables |
+| `READER_MASTODON_STREAMING` | on | Mastodon streaming API for sources with a connected account. `off` disables |
+
 ## Sign-ins and connected accounts
 
 Mastodon and Reddit accounts, and sign-ins for private feeds, are connected
 in the web UI (**Add source**, **Accounts**) and stored in the local
 database. They are not configured through the environment. Each one is bound
 to a single origin: its password, token or OAuth access token is sent only
-there. An OAuth refresh token and client secret go only to the provider's
-token endpoint. Redirects to another host drop the sign-in. Secrets are stored
+there. There is one exception: a Mastodon token may also go to that
+instance's streaming host, if it is the same host or a subdomain of it (such
+as `streaming.mastodon.social`). An OAuth refresh token and client secret go
+only to the provider's token endpoint. Redirects to another host drop the
+sign-in. Secrets are stored
 in plaintext in the SQLite file, so protect it like the `env` file. API
 responses never include them.
 

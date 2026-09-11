@@ -32,6 +32,20 @@ sign-in window from the platform itself. Reader never sees your password.
 **Accounts** in the sidebar lists connected accounts, removes ones no source
 uses, and attaches an account to existing sources of its platform.
 
+## Real-time delivery
+
+Some sources also get posts the moment they are published, on top of the
+regular polling:
+
+- **Mastodon** sources with a connected account (home timeline or hashtag)
+  use the instance's streaming API.
+- **Bluesky** account sources use Jetstream. Search sources keep polling
+  only, because Jetstream cannot filter by text.
+
+Streamed posts are grouped for a few seconds before LLM filtering, so the
+filter scores them together. Digest-mode sources collect them for the next
+digest like any other post.
+
 ## Digest modes
 
 - **realtime** — every poll delivers new statuses individually.

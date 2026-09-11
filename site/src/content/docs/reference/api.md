@@ -34,6 +34,17 @@ server binds 127.0.0.1 by default; see [Hosting](/reader/hosting/).
 | `GET /articles/:id` | Full record, including `listIds` and `snoozedUntil` |
 | `POST /articles/:id/read` | Body `{"read": true \| false}` |
 | `POST /articles/:id/snooze` | Body `{"until": ISO8601 \| null}` — `null` unsnoozes |
+| `GET /articles/:id/transcript` | Podcast transcript, fetched from the publisher and normalized: `{"kind": "cues", "cues": [{start, text, speaker}]}`, `{"kind": "html", html}` or `{"kind": "text", text}`. `404` when the episode has none, `502 transcript_unavailable` when the file cannot be fetched or read |
+| `GET /articles/:id/chapters` | Podcast chapters: `{"chapters": [{start, title, url, img}]}`. `404` / `502 chapters_unavailable` as above |
+
+Articles carry `media` (`{url, type}` of a playable enclosure) in lists too;
+`transcript` and `chaptersUrl` come with the full record.
+
+## Real-time
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /realtime` | Outbound stream state: each socket's name, redacted URL, `state` (`connecting` \| `open` \| `waiting` \| `closed`), message and reconnect counts, last error; plus Podping, Jetstream and Mastodon summaries |
 
 ## Categories
 
