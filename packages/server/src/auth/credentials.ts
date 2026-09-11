@@ -115,6 +115,25 @@ export async function authorizationFor(
   return `Bearer ${current.accessToken}`;
 }
 
+/**
+ * The bare access token for a WebSocket stream. Mastodon may serve streaming
+ * from a separate host it names in its instance info (streaming.mastodon.social
+ * for mastodon.social), so the stream host may be the credential's host or a
+ * subdomain of it — never anything else.
+ */
+export async function streamingTokenFor(storage: Storage, credentialId: string, streamUrl: string): Promise<string> {
+  const credential = storage.getCredential(credentialId);
+  if (!credential) throw new CredentialError(`credential ${credentialId} no longer exists`);
+  const home = new URL(credential.origin);
+  const stream = new URL(streamUrl);
+  const secure = home.protocol === "https:" ? stream.protocol === "wss:" : stream.protocol === "ws:" || stream.protocol === "wss:";
+  const sameSite = stream.hostname === home.hostname || stream.hostname.endsWith(`.${home.hostname}`);
+  if (!secure || !sameSite) throw new CredentialError(`${credential.label} is for ${credential.origin}, not stream ${stream.origin}`);
+  const header = await authorizationFor(storage, credentialId, `${credential.origin}/`);
+  if (!header.startsWith("Bearer ")) throw new CredentialError(`${credential.label} has no token to stream with`);
+  return header.slice("Bearer ".length);
+}
+
 /** Public view of a credential: never the secret, only what the UI shows. */
 export function describeCredential(credential: Credential) {
   return {

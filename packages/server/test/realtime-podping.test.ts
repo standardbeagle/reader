@@ -6,6 +6,7 @@ import { createSqliteStorage } from "../src/storage/sqlite.js";
 import type { Storage } from "../src/storage/types.js";
 import { Poller } from "../src/poller/poller.js";
 import { RealtimeHub } from "../src/realtime/hub.js";
+import { IngestorEngine } from "../src/ingestors/engine.js";
 import { feedKey, podpingIris } from "../src/realtime/podping.js";
 import { startFixtureServer, type FixtureFeed } from "./fixtureServer.js";
 
@@ -70,13 +71,14 @@ describe("RealtimeHub podping", () => {
     const poller = new Poller(storage);
     const blog = storage.createFeed(user.id, { url: `${baseUrl}/blog.xml`, title: "b", siteUrl: null });
     await poller.refreshFeed(blog.id);
-    hub = new RealtimeHub(storage, poller, { podpingUrl: relayUrl, reconcileMs: 60_000 });
+    hub = new RealtimeHub(storage, poller, new IngestorEngine(storage, null), { podpingUrl: relayUrl, jetstreamUrl: null, mastodonStreaming: false, reconcileMs: 60_000 });
     hub.start();
+    await hub.reconcile();
     expect(hub.status().streams).toHaveLength(0);
 
     const pod = storage.createFeed(user.id, { url: `${baseUrl}/pod.xml`, title: "p", siteUrl: null });
     await poller.refreshFeed(pod.id);
-    hub.reconcile();
+    await hub.reconcile();
     await until(() => clients.length === 1 && hub!.status().streams[0]?.state === "open");
 
     const before = { pod: state.get("/pod.xml")!.requestCount, blog: state.get("/blog.xml")!.requestCount };
@@ -91,7 +93,7 @@ describe("RealtimeHub podping", () => {
     expect(hub.status().podping).toEqual({ enabled: true, watchedFeeds: 1, matches: 1 });
 
     storage.deleteFeed(pod.id);
-    hub.reconcile();
+    await hub.reconcile();
     expect(hub.status().streams).toHaveLength(0);
   });
 });

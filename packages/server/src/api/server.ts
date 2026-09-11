@@ -8,6 +8,7 @@ import { registerAuthRoutes } from "./routes-auth.js";
 import { registerPodcastRoutes } from "./routes-podcast.js";
 import { RealtimeHub } from "../realtime/hub.js";
 import { DEFAULT_PODPING_URL } from "../realtime/podping.js";
+import { DEFAULT_JETSTREAM_URL } from "../realtime/jetstream.js";
 import { IngestorEngine, type FetchFn } from "../ingestors/engine.js";
 import { createOpenRouterClient, type LlmClient } from "../llm/client.js";
 
@@ -20,6 +21,8 @@ export interface ServerOptions {
   ingestorTickMs?: number;
   /** Podping relay URL; null disables it. Defaults to READER_PODPING_URL or the public relay. */
   podpingUrl?: string | null;
+  /** Jetstream URL; null disables it. Defaults to READER_JETSTREAM_URL or a public instance. */
+  jetstreamUrl?: string | null;
 }
 
 const BACKGROUND_START_DELAY_MS = 8_000;
@@ -83,10 +86,14 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   registerListRoutes(app, storage);
   registerAuthRoutes(app, storage);
   registerPodcastRoutes(app, storage);
-  // READER_PODPING=off disables Podping; READER_PODPING_URL picks another relay.
-  const realtime = new RealtimeHub(storage, poller, {
-    podpingUrl: opts.podpingUrl !== undefined ? opts.podpingUrl
-      : process.env.READER_PODPING === "off" ? null : process.env.READER_PODPING_URL ?? DEFAULT_PODPING_URL,
+  // READER_{PODPING,JETSTREAM,MASTODON_STREAMING}=off disable a stream;
+  // READER_PODPING_URL / READER_JETSTREAM_URL point at other endpoints.
+  const streamUrl = (name: string, override: string | null | undefined, fallback: string) =>
+    override !== undefined ? override : process.env[`READER_${name}`] === "off" ? null : process.env[`READER_${name}_URL`] ?? fallback;
+  const realtime = new RealtimeHub(storage, poller, engine, {
+    podpingUrl: streamUrl("PODPING", opts.podpingUrl, DEFAULT_PODPING_URL),
+    jetstreamUrl: streamUrl("JETSTREAM", opts.jetstreamUrl, DEFAULT_JETSTREAM_URL),
+    mastodonStreaming: process.env.READER_MASTODON_STREAMING !== "off",
   });
   if (opts.poller !== false) realtime.start();
   app.get("/api/v1/realtime", async () => realtime.status());

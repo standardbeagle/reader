@@ -1,6 +1,7 @@
 import { fetchCapped } from "../fetch.js";
 import { authorizationFor } from "../auth/credentials.js";
 import type { AdapterContext, IngestorAdapter } from "./types.js";
+import type { NormalizedItem } from "../storage/types.js";
 
 function stripHtml(html: string): string {
   return html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>\s*<p>/gi, "\n\n").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
@@ -17,6 +18,42 @@ async function getAuthed(config: Record<string, unknown>, ctx: AdapterContext, u
     maxBytes,
     ...(credentialId ? { headers: { authorization: await authorizationFor(ctx.storage, credentialId, url) } } : {}),
   });
+}
+
+/** A Mastodon status as a staged item; shared by polling and the streaming API. */
+export function statusToItem(s: Record<string, unknown>): NormalizedItem {
+  return {
+    externalId: String(s.id),
+    author: (s.account as Record<string, unknown>)?.acct as string ?? null,
+    title: null,
+    text: stripHtml(String(s.content ?? "")),
+    url: (s.url as string) ?? null,
+    publishedAt: (s.created_at as string) ?? null,
+  };
+}
+
+/**
+ * Where the instance serves its streaming API: v2 instance info names it
+ * (configuration.urls.streaming), v1 as urls.streaming_api; Mastodon's
+ * default is the instance host itself.
+ */
+export async function streamingBase(instanceBase: string): Promise<string> {
+  const dig = (doc: unknown, keys: string[]): unknown =>
+    keys.reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), doc);
+  for (const [path, keys] of [
+    ["/api/v2/instance", ["configuration", "urls", "streaming"]],
+    ["/api/v1/instance", ["urls", "streaming_api"]],
+  ] as const) {
+    const res = await fetchCapped(`${instanceBase}${path}`, { maxBytes: 1024 * 1024 }).catch(() => null);
+    if (res?.status !== 200) continue;
+    const url = dig(JSON.parse(res.body), [...keys]);
+    if (typeof url === "string" && /^wss?:\/\//.test(url)) return url.replace(/\/+$/, "");
+  }
+  return instanceBase.replace(/^http/, "ws");
+}
+
+export function mastodonBase(cfg: Record<string, unknown>): string {
+  return base(cfg);
 }
 
 export const mastodonAdapter: IngestorAdapter = {
@@ -50,14 +87,7 @@ export const mastodonAdapter: IngestorAdapter = {
     const res = await getAuthed(config, ctx, `${base(config)}${path}?${params}`, 5 * 1024 * 1024);
     if (res.status !== 200) throw new Error(`mastodon fetch failed: HTTP ${res.status}`);
     const statuses = JSON.parse(res.body) as Record<string, unknown>[];
-    const items = statuses.map((s) => ({
-      externalId: String(s.id),
-      author: (s.account as Record<string, unknown>)?.acct as string ?? null,
-      title: null,
-      text: stripHtml(String(s.content ?? "")),
-      url: (s.url as string) ?? null,
-      publishedAt: (s.created_at as string) ?? null,
-    }));
+    const items = statuses.map(statusToItem);
     // Status ids are numeric strings of varying length; compare as BigInt.
     const newest = statuses.reduce<string | null>(
       (max, s) => (max === null || BigInt(String(s.id)) > BigInt(max) ? String(s.id) : max),
