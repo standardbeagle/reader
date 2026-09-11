@@ -126,6 +126,12 @@ describe("parseFeed", () => {
     expect((await parseFeed(fixture("rss2.xml"))).olderUrl).toBeNull();
   });
 
+  it("decodes entities that publishers put inside CDATA titles", async () => {
+    const feed = await parseFeed(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
+      <item><title><![CDATA[Meta says it&#8217;s changing &amp; the &#x2018;Phoenix&#x2019; headset]]></title><guid>e1</guid></item></channel></rss>`);
+    expect(feed.articles[0]!.title).toBe("Meta says it’s changing & the ‘Phoenix’ headset");
+  });
+
   it("synthesizes a stable guid when missing", async () => {
     const a = await parseFeed(fixture("no-guid.xml"));
     const b = await parseFeed(fixture("no-guid.xml"));

@@ -1,7 +1,7 @@
 import Parser from "rss-parser";
 import { createHash } from "node:crypto";
 import type { ArticleMedia, ParsedFeed, ParsedArticle } from "./types.js";
-import { isHtmlDocument, looksLikeHtml } from "./content.js";
+import { decodeHtmlEntities, isHtmlDocument, looksLikeHtml } from "./content.js";
 import { parseHFeed } from "./h-feed.js";
 import { limitCategories } from "./categories.js";
 import { parseJsonFeed } from "./json-feed.js";
@@ -197,7 +197,9 @@ export async function parseFeed(xml: string, opts: { url?: string } = {}): Promi
   const showArt = typeof showImage === "string" && showImage.trim() ? showImage.trim() : null;
   const articles: ParsedArticle[] = (raw.items ?? []).map((item) => {
     const it = item as unknown as Record<string, unknown>;
-    const title = typeof it.title === "string" ? it.title.trim() || "(untitled)" : "(untitled)";
+    // Titles are plain text, but publishers often put entities inside CDATA
+    // (The Verge: <![CDATA[it&#8217;s]]>), which XML leaves as literal "&#8217;".
+    const title = typeof it.title === "string" ? decodeHtmlEntities(it.title.trim()) || "(untitled)" : "(untitled)";
     const url = typeof it.link === "string" ? it.link : null;
     const published = typeof it.isoDate === "string" ? it.isoDate : typeof it.pubDate === "string" ? it.pubDate : null;
     const parsedDate = published ? new Date(published) : null;
