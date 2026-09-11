@@ -12,6 +12,8 @@
 // Subscribe the server to every FEED_URLS entry first.
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
+// Same title decoding the server applies when reading rows (build core first).
+import { decodeHtmlEntities } from "../packages/core/dist/index.js";
 
 const require = createRequire(new URL("../packages/server/package.json", import.meta.url));
 const Database = require("better-sqlite3");
@@ -89,7 +91,7 @@ for (const feed of feeds) {
     articles.push({
       id: row.id,
       feedId: row.feedId,
-      title: row.title,
+      title: decodeHtmlEntities(row.title),
       url: row.url,
       author: row.author,
       publishedAt: row.publishedAt,
