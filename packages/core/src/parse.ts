@@ -204,8 +204,17 @@ export async function parseFeed(xml: string, opts: { url?: string } = {}): Promi
     const published = typeof it.isoDate === "string" ? it.isoDate : typeof it.pubDate === "string" ? it.pubDate : null;
     const parsedDate = published ? new Date(published) : null;
     const explicitGuid = typeof it.guid === "string" ? it.guid : typeof it.id === "string" ? it.id : null;
-    const guid = explicitGuid
-      ?? `sha1:${createHash("sha1").update(`${url ?? ""}|${title}|${published ?? ""}`).digest("hex")}`;
+    // Identity, most stable field first. RSS treats the link as the permalink
+    // when an item carries no guid, and it is the only field publishers do not
+    // quietly rewrite: science.org re-stamps pubDate by 10-60 seconds and
+    // copy-edits titles between polls ("river" to "River", straight quotes to
+    // curly), so either one in the identity turns an edit into a second copy.
+    // Two guid-less items sharing a link therefore read as one item.
+    //
+    // The last-resort hash keeps its input string byte for byte, empty leading
+    // url field included: changing it would orphan every row stored under it.
+    const guid = explicitGuid ?? url
+      ?? `sha1:${createHash("sha1").update(`|${title}|${published ?? ""}`).digest("hex")}`;
     const rawContent = typeof it["content:encoded"] === "string"
       ? it["content:encoded"]
       : typeof it.content === "string" ? it.content : null;

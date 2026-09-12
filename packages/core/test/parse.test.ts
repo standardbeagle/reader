@@ -136,7 +136,7 @@ describe("parseFeed", () => {
     const a = await parseFeed(fixture("no-guid.xml"));
     const b = await parseFeed(fixture("no-guid.xml"));
     expect(a.articles[0]!.guid).toBe(b.articles[0]!.guid);
-    expect(a.articles[0]!.guid).toMatch(/^sha1:[0-9a-f]{40}$/);
+    expect(a.articles[0]!.guid).toBe("https://noguid.example.com/a");
   });
 
   it("tolerates missing dates and authors", async () => {
@@ -149,7 +149,7 @@ describe("parseFeed", () => {
     await expect(parseFeed("<rss><channel><item>")).rejects.toThrow();
   });
 
-  it("synthesizes distinct guids for guid-less items sharing a link", async () => {
+  it("identifies a guid-less item by its link, so one link is one item", async () => {
     const xml = `<?xml version="1.0"?>
 <rss version="2.0"><channel><title>t</title><link>https://x.example</link>
 <item><title>Alpha</title><link>https://x.example/same</link></item>
@@ -157,6 +157,26 @@ describe("parseFeed", () => {
 </channel></rss>`;
     const feed = await parseFeed(xml);
     expect(feed.articles).toHaveLength(2);
-    expect(feed.articles[0]!.guid).not.toBe(feed.articles[1]!.guid);
+    expect(feed.articles[0]!.guid).toBe("https://x.example/same");
+    expect(feed.articles[1]!.guid).toBe("https://x.example/same");
+  });
+
+  it("holds a guid-less item's identity through a re-stamped date and a retitle", async () => {
+    const item = (title: string, date: string) => `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>t</title>
+<item><title>${title}</title>
+<link>https://www.science.org/content/article/halted-dam-releases</link>
+<pubDate>${date}</pubDate></item></channel></rss>`;
+    const first = await parseFeed(item("Halted dam releases threaten Colorado river ecosystems", "Tue, 11 Aug 2026 04:30:00 GMT"));
+    const edited = await parseFeed(item("Halted dam releases threaten Colorado River ecosystems", "Tue, 11 Aug 2026 04:30:58 GMT"));
+    expect(edited.articles[0]!.guid).toBe(first.articles[0]!.guid);
+  });
+
+  it("still falls back to a hash when an item has neither guid nor link", async () => {
+    const xml = `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>t</title>
+<item><title>Linkless</title></item></channel></rss>`;
+    const feed = await parseFeed(xml);
+    expect(feed.articles[0]!.guid).toMatch(/^sha1:[0-9a-f]{40}$/);
   });
 });
