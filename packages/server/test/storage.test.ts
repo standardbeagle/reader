@@ -265,6 +265,56 @@ describe("sqlite storage", () => {
     expect(storage.listArticles({ userId, limit: 50 })).toHaveLength(0);
   });
 
+  it("merges the copies a rewritten date and title left behind", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reader-guid-"));
+    const dbPath = join(dir, "reader.db");
+    const url = "https://sci.example/halted-dam-releases";
+    try {
+      const before = createSqliteStorage(dbPath);
+      const uid = before.getOrCreateLocalUser().id;
+      const feed = before.createFeed(uid, { url: "https://sci.example/rss", title: "Sci", siteUrl: null });
+      const list = before.createList(uid, { title: "Keep", visibility: "private" });
+      before.close();
+
+      // Re-stage the pre-0012 world: three rows for one article, each hashed
+      // under a date and a title the publisher went on to edit.
+      const raw = new Database(dbPath);
+      const insert = raw.prepare(`INSERT INTO articles (id, feed_id, guid, url, title, published_at, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`);
+      insert.run("art-first", feed.id, "sha1:aaa", url,
+        "Halted dam releases threaten Colorado river ecosystems", "2026-08-11T04:30:00.000Z", "2026-08-11T05:00:00.000Z");
+      insert.run("art-restamped", feed.id, "sha1:bbb", url,
+        "Halted dam releases threaten Colorado river ecosystems", "2026-08-11T04:30:58.000Z", "2026-08-11T06:00:00.000Z");
+      insert.run("art-retitled", feed.id, "sha1:ccc", url,
+        "Halted dam releases threaten Colorado River ecosystems", "2026-08-11T04:30:58.000Z", "2026-08-12T06:00:00.000Z");
+      raw.prepare("INSERT INTO user_articles (user_id, article_id, read_at) VALUES (?, 'art-retitled', ?)")
+        .run(uid, "2026-08-12T12:00:00.000Z");
+      raw.prepare("INSERT INTO user_articles (user_id, article_id, snoozed_until) VALUES (?, 'art-restamped', ?)")
+        .run(uid, "2026-08-20T00:00:00.000Z");
+      raw.prepare("INSERT INTO list_items (list_id, article_id, added_at) VALUES (?, 'art-retitled', ?)")
+        .run(list.id, "2026-08-12T12:00:00.000Z");
+      raw.prepare("DELETE FROM schema_migrations WHERE name = ?").run("0012_link_is_the_synthesized_guid.sql");
+      raw.close();
+
+      const after = createSqliteStorage(dbPath);
+      const articles = after.listArticles({ userId: uid, limit: 50, includeSnoozed: true });
+      const listed = after.listArticles({ userId: uid, listId: list.id, limit: 50, includeSnoozed: true });
+      after.close();
+
+      expect(articles).toHaveLength(1);
+      const survivor = articles[0]!;
+      // The copy that arrived first survives, carrying the state that landed
+      // on the later ones, and answers to the link the parser now uses.
+      expect(survivor.id).toBe("art-first");
+      expect(survivor.guid).toBe(url);
+      expect(survivor.readAt).toBe("2026-08-12T12:00:00.000Z");
+      expect(survivor.snoozedUntil).toBe("2026-08-20T00:00:00.000Z");
+      expect(listed.map((a) => a.id)).toEqual(["art-first"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("decodes entities in titles stored before the parser decoded them", () => {
     const legacy = createSqliteStorage(":memory:");
     const uid = legacy.getOrCreateLocalUser().id;
