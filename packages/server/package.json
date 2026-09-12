@@ -6,7 +6,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run --passWithNoTests",
     "pretest": "pnpm --filter @reader/core build",
-    "build": "tsc -b tsconfig.json && cp -r src/storage/migrations dist/src/storage/"
+    "build": "tsc -b tsconfig.json && rm -rf dist/src/storage/migrations && cp -r src/storage/migrations dist/src/storage/"
   },
   "dependencies": {
     "@fastify/static": "^10.1.2",
