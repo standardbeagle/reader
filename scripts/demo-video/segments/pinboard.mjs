@@ -8,7 +8,12 @@ export default async function run(d) {
     await __until(() => document.querySelector(".list li button")?.textContent !== before);
     await __wait(700);
     await __click(document.querySelector("button.view-toggle"));
-    await __until(() => { const imgs = [...document.querySelectorAll(".pin-card img")].slice(0, 4); return imgs.length && imgs.every((i) => i.complete); });`);
+    // complete is also true for an image that never started or failed, so gate
+    // on decoded pixels: the board's whole point is that the cards carry art.
+    await __until(() => {
+      const imgs = [...document.querySelectorAll(".pin-card img")].slice(0, 4);
+      return imgs.length >= 4 && imgs.every((i) => i.naturalWidth > 0);
+    });`);
   d.mark("board");
   await d.sleep(1500);
   await act(d, `
