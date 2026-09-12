@@ -4,11 +4,12 @@
 // Recording the product video with agnt's demo engine:
 //   VITE_DEMO=1 pnpm --filter @reader/web exec vite build --base=/reader/demo/ --outDir dist-demo --emptyOutDir
 //   cd ~/work/core/agnt/docs-site/screenshots
-//   env -u DISPLAY -u WAYLAND_DISPLAY node engine/demo.mjs <repo>/scripts/demo-video
+//   node engine/demo.mjs <repo>/scripts/demo-video
 //
-// Unset the display variables on WSL: with WSLg's DISPLAY/WAYLAND_DISPLAY set,
-// Playwright's Chromium produces almost no frames (a 5 s recording holds 24,
-// screenshots time out, each synthetic mouse event waits seconds).
+// No display-variable juggling: the frame stall was Playwright's own launch
+// defaults (SwiftShader plus GPU compositing on a host with no GPU), and the
+// engine's CHROMIUM_LAUNCH_OPTIONS drops both. Takes now hold a full 25 fps
+// with WSLg's DISPLAY/WAYLAND_DISPLAY set.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
