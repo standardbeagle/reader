@@ -1,0 +1,209 @@
+[
+  {
+    "name": "reader-bugfix",
+    "description": "reader TDD bug fix: reproduce (suite must FAIL) -> fix in scope -> pnpm -r test green -> review-context. Tag bugfix. Narrow the reproduce argv per task when the failing test is known.",
+    "autoAttachOnTags": [
+      "bugfix"
+    ],
+    "steps": [
+      {
+        "kind": "command",
+        "name": "reproduce-failing",
+        "specJson": "{\"argv\":[\"tman\",\"run\",\"--\",\"pnpm\",\"-r\",\"test\"],\"cwd\":\"/home/beagle/work/experimental/reader\",\"expect_exit_nonzero\":true,\"timeout_seconds\":1200}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:command_result_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "file_scope",
+        "name": "fix-scope",
+        "specJson": "{}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:file_scope_eval_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "command",
+        "name": "full-suite",
+        "specJson": "{\"argv\":[\"tman\",\"run\",\"--\",\"pnpm\",\"-r\",\"test\"],\"cwd\":\"/home/beagle/work/experimental/reader\",\"expect_exit\":0,\"timeout_seconds\":1200}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:command_result_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "subagent",
+        "name": "review",
+        "specJson": "{\"subagent_type\":\"worktrack-loop:review-context\"}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:reviewer_verdict_v1",
+        "maxAttempts": 3
+      }
+    ]
+  },
+  {
+    "name": "reader-epic",
+    "description": "reader epic container: gate on child slices done -> one full pnpm -r build + test. Tag epic. Epics with spikes/planning children replace this with inline steps that gate each phase.",
+    "autoAttachOnTags": [
+      "epic"
+    ],
+    "steps": [
+      {
+        "kind": "subtask_gate",
+        "name": "slices-done",
+        "specJson": "{\"match\":{\"tag\":\"slice\"},\"require\":{\"minCount\":1,\"status\":\"done\"}}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:subtask_gate_eval_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "command",
+        "name": "build",
+        "specJson": "{\"argv\":[\"tman\",\"run\",\"--\",\"pnpm\",\"-r\",\"build\"],\"cwd\":\"/home/beagle/work/experimental/reader\",\"expect_exit\":0,\"timeout_seconds\":900}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:command_result_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "command",
+        "name": "full-suite",
+        "specJson": "{\"argv\":[\"tman\",\"run\",\"--\",\"pnpm\",\"-r\",\"test\"],\"cwd\":\"/home/beagle/work/experimental/reader\",\"expect_exit\":0,\"timeout_seconds\":1200}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:command_result_v1",
+        "maxAttempts": 3
+      }
+    ]
+  },
+  {
+    "name": "reader-planning",
+    "description": "reader planning slice: planning-context decomposes an epic into implementation slices from the spike findings -> checklist that the minted slices are runnable (lint, auto-attach, edges, epic gate). Tag planning. No production code.",
+    "autoAttachOnTags": [
+      "planning"
+    ],
+    "steps": [
+      {
+        "kind": "subagent",
+        "name": "decompose",
+        "specJson": "{\"subagent_type\":\"worktrack-loop:planning-context\"}",
+        "required": true,
+        "allowSkip": false,
+        "maxAttempts": 3
+      },
+      {
+        "kind": "manual",
+        "name": "slices-minted",
+        "specJson": "{\"checklist\":[\"Decisions taken from the spike docs are recorded on the epic (content or a decision comment) with their sources\",\"Every minted slice has file scope, acceptance criteria and INTEGRATION-POINTS, and is parented to the epic\",\"slice-lint.py --workspace reader exits 0 (maxScope from .worktrack/slice-lint.json)\",\"task_workflow_get on every minted slice shows template reader-slice with the implement step first\",\"blocks edges were written AFTER attach was verified and read back before any prose claims them\",\"The epic's slices-done gate minCount equals the number of slices minted\"]}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:manual_check_v1",
+        "maxAttempts": 3
+      }
+    ]
+  },
+  {
+    "name": "reader-slice",
+    "description": "reader slice: opencode ACP implementer -> file scope -> pnpm -r build -> pnpm -r test (both under tman) -> review-context. Tag slice/correctness/security.",
+    "autoAttachOnTags": [
+      "slice",
+      "correctness",
+      "security"
+    ],
+    "steps": [
+      {
+        "kind": "acp_agent",
+        "name": "implement",
+        "specJson": "{\"agent\":{\"argv\":[\"opencode-acp\"],\"cwd\":\"/home/beagle/work/experimental/reader\"},\"model\":\"opencode-go/qwen3.8-flash\",\"permissions\":\"allow_all\",\"fs\":\"read_write\",\"timeout_seconds\":3600,\"stall_seconds\":600,\"prompt\":\"You are implementing work-track task {{task.id}} in workspace {{workspace}}. Repo: /home/beagle/work/experimental/reader, a pnpm monorepo (packages/core, packages/server with vitest tests in packages/server/test, apps/web React + vitest). Read AGENTS.md first.\\n\\nTitle: {{task.title}}\\n\\nDescription and acceptance criteria:\\n{{task.description}}\\n\\nFile scope - only these paths may change:\\n{{task.scope}}\\n\\nRules: write the minimum code that satisfies every acceptance criterion. Add or extend tests for the behaviour before or alongside the implementation. No fallbacks, no dummy data, fail fast on errors. Run `tman run -- pnpm -r build` and `tman run -- pnpm -r test` before finishing. Commit in logical units (refactor, test, implementation, docs) with conventional-commit messages explaining why; every commit message must end with the trailer line `worktrack-task: {{task.id}}`. Do not touch files outside the scope. Budget: 40 tool calls. If blocked, commit what is green and state the blocker in your final message.\"}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:acp_result_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "file_scope",
+        "name": "scope-check",
+        "specJson": "{}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:file_scope_eval_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "command",
+        "name": "build",
+        "specJson": "{\"argv\":[\"tman\",\"run\",\"--\",\"pnpm\",\"-r\",\"build\"],\"cwd\":\"/home/beagle/work/experimental/reader\",\"expect_exit\":0,\"timeout_seconds\":900}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:command_result_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "command",
+        "name": "full-suite",
+        "specJson": "{\"argv\":[\"tman\",\"run\",\"--\",\"pnpm\",\"-r\",\"test\"],\"cwd\":\"/home/beagle/work/experimental/reader\",\"expect_exit\":0,\"timeout_seconds\":1200}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:command_result_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "subagent",
+        "name": "review",
+        "specJson": "{\"subagent_type\":\"worktrack-loop:review-context\"}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:reviewer_verdict_v1",
+        "maxAttempts": 3
+      }
+    ]
+  },
+  {
+    "name": "reader-spike",
+    "description": "reader spike: investigate and write a findings doc (no production code) -> doc scope -> findings checklist -> review-context. Tag spike. Implementer is a task-context subagent because spikes often need the user in the loop (credentials, judgement calls).",
+    "autoAttachOnTags": [
+      "spike"
+    ],
+    "steps": [
+      {
+        "kind": "subagent",
+        "name": "investigate",
+        "specJson": "{\"subagent_type\":\"worktrack-loop:task-context\"}",
+        "required": true,
+        "allowSkip": false,
+        "maxAttempts": 3
+      },
+      {
+        "kind": "file_scope",
+        "name": "doc-scope",
+        "specJson": "{}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:file_scope_eval_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "manual",
+        "name": "findings-captured",
+        "specJson": "{\"checklist\":[\"Every acceptance criterion on the task is answered in the doc with evidence (captured output, redacted), not opinion\",\"Each option evaluated has: what it gives, what it cannot give, how it breaks, and its risk (ToS, fragility, secrets)\",\"The doc ends with ONE recommendation and the open questions it leaves for planning\",\"No secrets, tokens, card numbers or setup codes in the doc or any committed script\"]}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:manual_check_v1",
+        "maxAttempts": 3
+      },
+      {
+        "kind": "subagent",
+        "name": "review",
+        "specJson": "{\"subagent_type\":\"worktrack-loop:review-context\"}",
+        "required": true,
+        "allowSkip": false,
+        "outcomeSchemaRef": "builtin:reviewer_verdict_v1",
+        "maxAttempts": 3
+      }
+    ]
+  }
+]

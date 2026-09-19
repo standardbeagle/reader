@@ -11,3 +11,12 @@ site/public/demo/
 
 site/.astro/
 /scripts/demo-video/out/
+
+# tman shims and run logs
+/.tman/
+/build
+/build.ps1
+/build.cmd
+/test
+/test.ps1
+/test.cmd

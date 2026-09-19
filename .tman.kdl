@@ -1,0 +1,20 @@
+defaults {
+    stall "30m"
+    max-parallel 2
+    retain "24h"
+    // opt-in ceilings; builds legitimately saturate cores and eat RAM
+    // max-mem 8192
+    // max-cpu 95
+    // max-time "30m"
+}
+
+alias "build" {
+    command "npm"
+    args "run" "build"
+}
+
+alias "test" {
+    command "npm"
+    args "run" "test"
+}
+
