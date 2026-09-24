@@ -20,3 +20,10 @@ site/.astro/
 /test
 /test.ps1
 /test.cmd
+
+# worktrack loop state is per-clone (lease holder carries an email); the
+# workspace binding and the workflow manifest are shared, so they are committed.
+.worktrack/*
+!.worktrack/mcp.json
+!.worktrack/templates.json
+!.worktrack/slice-lint.json

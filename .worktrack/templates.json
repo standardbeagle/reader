@@ -1,199 +1,202 @@
-[
-  {
-    "name": "reader-spike",
-    "description": "Answer a question and write it down: investigate, scope the doc, then an independent review that judges the findings' citations. Every step is server-executable.",
-    "autoAttachOnTags": [
-      "spike"
-    ],
-    "steps": [
-      {
-        "kind": "acp_agent",
-        "name": "investigate",
-        "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_write\", \"timeout_seconds\": 3600, \"stall_seconds\": 1800, \"prompt\": \"SPIKE {{task.id}} in workspace {{workspace}}: {{task.title}}\\n{{task.description}}\\nScope: {{task.scope}}\\n{{task.primer}}\\nThis is a question to answer, not a feature to build. Read the code and the external surface it asks about, then write the findings to a markdown file under docs/spikes/ named for this task. The file must state: what you checked and how (file:line, request, or command), what is true, what is still unknown, and the options the answer leaves open with the cost of each. An option with no cost attached is not an option. Do not change production code.\\nThe execution cwd is the repository drain selected; every command and every piece of evidence must come from that same checkout. Read AGENTS.md and any applicable rules first. Preserve unrelated edits. Never commit a failing state. Commit logical units with conventional subjects and a final trailer worktrack-task: {{task.id}}. Do not push. Partial work is not completion: report what you did not finish. Do not alter workflows, force gates, delegate, or start child sessions.\"}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:acp_result_v1"
-      },
-      {
-        "kind": "file_scope",
-        "name": "doc-scope",
-        "specJson": "{}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3
-      },
-      {
-        "kind": "acp_agent",
-        "name": "review",
-        "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/deepseek-v4.1-flash\", \"fallback_models\": [\"opencode-go/qwen3.8-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"REVIEW GATE for task {{task.id}} ({{workspace}}): {{task.title}}\\n\\nTASK TEXT:\\n{{task.description}}\\n\\nDECLARED SCOPE:\\n{{task.scope}}\\n\\nPATHS CHANGED OUTSIDE THE DECLARED SCOPE (judge whether each was necessary): {{step.scope-check.outcome.outOfScopePaths}}\\n\\nThis review step's id is {{step.id}}. Read the packet through the worktrack MCP tools (task_get, task_workflow_get with attempts, task_comments_list, task_workflow_review_change_packet) and inspect the real git changes and the recorded gate output in this checkout. This is a SPIKE: the deliverable is the findings document. Verify that every claim in it cites what it was checked against, that the unknowns are named rather than glossed, and that each option carries its cost. A confident document with no citations is a blocker. Missing evidence is a blocker.\\n\\nFetch workflow_schema_get(name=reviewer_verdict_v1), then submit the verdict through task_workflow_step_verdict_submit(taskId={{task.id}}, stepId={{step.id}}, verdict=...). A final message is not a submission. On fail, set rewind_to to the implement step's id from task_workflow_get. Pass only with status passed, verdict pass, confidence high and no blockers.\\nThis is a review-only turn: do not edit files, commit, force gates, delegate, or change models.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:reviewer_verdict_v1"
-      }
-    ]
-  },
-  {
-    "name": "reader-planning",
-    "description": "Turn spike findings into slices through the worktrack MCP, then gate on at least one slice existing. The old manual 'slices-minted' gate could not be cleared by a drain.",
-    "autoAttachOnTags": [
-      "planning"
-    ],
-    "steps": [
-      {
-        "kind": "acp_agent",
-        "name": "decompose",
-        "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"PLANNING {{task.id}} in workspace {{workspace}}: {{task.title}}\\n{{task.description}}\\n{{task.primer}}\\nRead the spike findings under docs/spikes/ and the code they name. Cut the work into slices and create them with the worktrack MCP (task_batch_create), each one: parented to the epic this planning task belongs to, tagged `slice`, carrying a real fileScope and acceptance criteria an unattended runner can check, and sized so one implementer turn can finish it. One behaviour per slice. Set blocks links where a slice genuinely needs another first. Then post a worktrack_completion_v1 comment naming the ids you created. Creating no task is a failed turn. Do not write production code.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:acp_result_v1"
-      }
-    ]
-  },
-  {
-    "name": "reader-slice",
-    "description": "Implementation slice: implement, scope, build, full suite, independent review.",
-    "autoAttachOnTags": [
-      "slice",
-      "correctness",
-      "security"
-    ],
-    "steps": [
-      {
-        "kind": "acp_agent",
-        "name": "implement",
-        "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_write\", \"timeout_seconds\": 3600, \"stall_seconds\": 1800, \"prompt\": \"Implement task {{task.id}} in workspace {{workspace}}.\\n{{task.title}}\\n{{task.description}}\\nScope: {{task.scope}}\\n{{task.primer}}\\nReproduce the stated behaviour with a focused failing test first, then make it pass, then run `pnpm -r build` and `pnpm -r test` through tman. Record the real RED and GREEN output.\\nThe execution cwd is the repository drain selected; every command and every piece of evidence must come from that same checkout. Read AGENTS.md and any applicable rules first. Preserve unrelated edits. Never commit a failing state. Commit logical units with conventional subjects and a final trailer worktrack-task: {{task.id}}. Do not push. Partial work is not completion: report what you did not finish. Do not alter workflows, force gates, delegate, or start child sessions.\"}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:acp_result_v1"
-      },
-      {
-        "kind": "file_scope",
-        "name": "scope-check",
-        "specJson": "{}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3
-      },
-      {
-        "kind": "command",
-        "name": "build",
-        "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"build\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:command_result_v1"
-      },
-      {
-        "kind": "command",
-        "name": "full-suite",
-        "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"test\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:command_result_v1"
-      },
-      {
-        "kind": "acp_agent",
-        "name": "review",
-        "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/deepseek-v4.1-flash\", \"fallback_models\": [\"opencode-go/qwen3.8-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"REVIEW GATE for task {{task.id}} ({{workspace}}): {{task.title}}\\n\\nTASK TEXT:\\n{{task.description}}\\n\\nDECLARED SCOPE:\\n{{task.scope}}\\n\\nPATHS CHANGED OUTSIDE THE DECLARED SCOPE (judge whether each was necessary): {{step.scope-check.outcome.outOfScopePaths}}\\n\\nThis review step's id is {{step.id}}. Read the packet through the worktrack MCP tools (task_get, task_workflow_get with attempts, task_comments_list, task_workflow_review_change_packet) and inspect the real git changes and the recorded gate output in this checkout. Verify every acceptance criterion, the negative cases, and that the evidence is real rather than asserted. Missing evidence is a blocker.\\n\\nFetch workflow_schema_get(name=reviewer_verdict_v1), then submit the verdict through task_workflow_step_verdict_submit(taskId={{task.id}}, stepId={{step.id}}, verdict=...). A final message is not a submission. On fail, set rewind_to to the implement step's id from task_workflow_get. Pass only with status passed, verdict pass, confidence high and no blockers.\\nThis is a review-only turn: do not edit files, commit, force gates, delegate, or change models.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:reviewer_verdict_v1"
-      }
-    ]
-  },
-  {
-    "name": "reader-bugfix",
-    "description": "Bug fix, test first. The previous version had NO implementer: it ran the suite, checked scope, ran the suite again and asked for a review of nothing.",
-    "autoAttachOnTags": [
-      "bugfix"
-    ],
-    "steps": [
-      {
-        "kind": "acp_agent",
-        "name": "implement",
-        "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_write\", \"timeout_seconds\": 3600, \"stall_seconds\": 1800, \"prompt\": \"Implement task {{task.id}} in workspace {{workspace}}.\\n{{task.title}}\\n{{task.description}}\\nScope: {{task.scope}}\\n{{task.primer}}\\nReproduce the stated behaviour with a focused failing test first, then make it pass, then run `pnpm -r build` and `pnpm -r test` through tman. Record the real RED and GREEN output.\\nThe execution cwd is the repository drain selected; every command and every piece of evidence must come from that same checkout. Read AGENTS.md and any applicable rules first. Preserve unrelated edits. Never commit a failing state. Commit logical units with conventional subjects and a final trailer worktrack-task: {{task.id}}. Do not push. Partial work is not completion: report what you did not finish. Do not alter workflows, force gates, delegate, or start child sessions.\"}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:acp_result_v1"
-      },
-      {
-        "kind": "file_scope",
-        "name": "fix-scope",
-        "specJson": "{}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3
-      },
-      {
-        "kind": "command",
-        "name": "build",
-        "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"build\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:command_result_v1"
-      },
-      {
-        "kind": "command",
-        "name": "full-suite",
-        "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"test\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:command_result_v1"
-      },
-      {
-        "kind": "acp_agent",
-        "name": "review",
-        "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/deepseek-v4.1-flash\", \"fallback_models\": [\"opencode-go/qwen3.8-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"REVIEW GATE for task {{task.id}} ({{workspace}}): {{task.title}}\\n\\nTASK TEXT:\\n{{task.description}}\\n\\nDECLARED SCOPE:\\n{{task.scope}}\\n\\nPATHS CHANGED OUTSIDE THE DECLARED SCOPE (judge whether each was necessary): {{step.scope-check.outcome.outOfScopePaths}}\\n\\nThis review step's id is {{step.id}}. Read the packet through the worktrack MCP tools (task_get, task_workflow_get with attempts, task_comments_list, task_workflow_review_change_packet) and inspect the real git changes and the recorded gate output in this checkout. Verify every acceptance criterion, the negative cases, and that the evidence is real rather than asserted. Missing evidence is a blocker.\\n\\nFetch workflow_schema_get(name=reviewer_verdict_v1), then submit the verdict through task_workflow_step_verdict_submit(taskId={{task.id}}, stepId={{step.id}}, verdict=...). A final message is not a submission. On fail, set rewind_to to the implement step's id from task_workflow_get. Pass only with status passed, verdict pass, confidence high and no blockers.\\nThis is a review-only turn: do not edit files, commit, force gates, delegate, or change models.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:reviewer_verdict_v1"
-      }
-    ]
-  },
-  {
-    "name": "reader-epic",
-    "description": "Epic container: wait for the slices, then prove the tree still builds and passes.",
-    "autoAttachOnTags": [
-      "epic"
-    ],
-    "steps": [
-      {
-        "kind": "subtask_gate",
-        "name": "slices-done",
-        "specJson": "{\"match\": {\"tag\": \"slice\"}, \"require\": {\"minCount\": 1, \"status\": [\"done\"]}}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:subtask_gate_eval_v1"
-      },
-      {
-        "kind": "command",
-        "name": "build",
-        "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"build\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:command_result_v1"
-      },
-      {
-        "kind": "command",
-        "name": "full-suite",
-        "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"test\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
-        "required": true,
-        "allowSkip": false,
-        "maxAttempts": 3,
-        "outcomeSchemaRef": "builtin:command_result_v1"
-      }
-    ]
-  }
-]
+{
+  "stack": "generic",
+  "templates": [
+    {
+      "name": "reader-spike",
+      "description": "Answer a question and write it down: investigate, scope the doc, then an independent review that judges the findings' citations. Every step is server-executable.",
+      "autoAttachOnTags": [
+        "spike"
+      ],
+      "steps": [
+        {
+          "kind": "acp_agent",
+          "name": "investigate",
+          "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_write\", \"timeout_seconds\": 3600, \"stall_seconds\": 1800, \"prompt\": \"SPIKE {{task.id}} in workspace {{workspace}}: {{task.title}}\\n{{task.description}}\\nScope: {{task.scope}}\\n{{task.primer}}\\nThis is a question to answer, not a feature to build. Read the code and the external surface it asks about, then write the findings to a markdown file under docs/spikes/ named for this task. The file must state: what you checked and how (file:line, request, or command), what is true, what is still unknown, and the options the answer leaves open with the cost of each. An option with no cost attached is not an option. Do not change production code.\\nThe execution cwd is the repository drain selected; every command and every piece of evidence must come from that same checkout. Read AGENTS.md and any applicable rules first. Preserve unrelated edits. Never commit a failing state. Commit logical units with conventional subjects and a final trailer worktrack-task: {{task.id}}. Do not push. Partial work is not completion: report what you did not finish. Do not alter workflows, force gates, delegate, or start child sessions.\"}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:acp_result_v1"
+        },
+        {
+          "kind": "file_scope",
+          "name": "doc-scope",
+          "specJson": "{}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3
+        },
+        {
+          "kind": "acp_agent",
+          "name": "review",
+          "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/deepseek-v4.1-flash\", \"fallback_models\": [\"opencode-go/qwen3.8-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"REVIEW GATE for task {{task.id}} ({{workspace}}): {{task.title}}\\n\\nTASK TEXT:\\n{{task.description}}\\n\\nDECLARED SCOPE:\\n{{task.scope}}\\n\\nPATHS CHANGED OUTSIDE THE DECLARED SCOPE (judge whether each was necessary): {{step.scope-check.outcome.outOfScopePaths}}\\n\\nThis review step's id is {{step.id}}. Read the packet through the worktrack MCP tools (task_get, task_workflow_get with attempts, task_comments_list, task_workflow_review_change_packet) and inspect the real git changes and the recorded gate output in this checkout. This is a SPIKE: the deliverable is the findings document. Verify that every claim in it cites what it was checked against, that the unknowns are named rather than glossed, and that each option carries its cost. A confident document with no citations is a blocker. Missing evidence is a blocker.\\n\\nFetch workflow_schema_get(name=reviewer_verdict_v1), then submit the verdict through task_workflow_step_verdict_submit(taskId={{task.id}}, stepId={{step.id}}, verdict=...). A final message is not a submission. On fail, set rewind_to to the implement step's id from task_workflow_get. Pass only with status passed, verdict pass, confidence high and no blockers.\\nThis is a review-only turn: do not edit files, commit, force gates, delegate, or change models.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:reviewer_verdict_v1"
+        }
+      ]
+    },
+    {
+      "name": "reader-planning",
+      "description": "Turn spike findings into slices through the worktrack MCP, then gate on at least one slice existing. The old manual 'slices-minted' gate could not be cleared by a drain.",
+      "autoAttachOnTags": [
+        "planning"
+      ],
+      "steps": [
+        {
+          "kind": "acp_agent",
+          "name": "decompose",
+          "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"PLANNING {{task.id}} in workspace {{workspace}}: {{task.title}}\\n{{task.description}}\\n{{task.primer}}\\nRead the spike findings under docs/spikes/ and the code they name. Cut the work into slices and create them with the worktrack MCP (task_batch_create), each one: parented to the epic this planning task belongs to, tagged `slice`, carrying a real fileScope and acceptance criteria an unattended runner can check, and sized so one implementer turn can finish it. One behaviour per slice. Set blocks links where a slice genuinely needs another first. Then post a worktrack_completion_v1 comment naming the ids you created. Creating no task is a failed turn. Do not write production code.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:acp_result_v1"
+        }
+      ]
+    },
+    {
+      "name": "reader-slice",
+      "description": "Implementation slice: implement, scope, build, full suite, independent review.",
+      "autoAttachOnTags": [
+        "feature",
+        "correctness",
+        "security"
+      ],
+      "steps": [
+        {
+          "kind": "acp_agent",
+          "name": "implement",
+          "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_write\", \"timeout_seconds\": 3600, \"stall_seconds\": 1800, \"prompt\": \"Implement task {{task.id}} in workspace {{workspace}}.\\n{{task.title}}\\n{{task.description}}\\nScope: {{task.scope}}\\n{{task.primer}}\\nReproduce the stated behaviour with a focused failing test first, then make it pass, then run `pnpm -r build` and `pnpm -r test` through tman. Record the real RED and GREEN output.\\nThe execution cwd is the repository drain selected; every command and every piece of evidence must come from that same checkout. Read AGENTS.md and any applicable rules first. Preserve unrelated edits. Never commit a failing state. Commit logical units with conventional subjects and a final trailer worktrack-task: {{task.id}}. Do not push. Partial work is not completion: report what you did not finish. Do not alter workflows, force gates, delegate, or start child sessions.\"}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:acp_result_v1"
+        },
+        {
+          "kind": "file_scope",
+          "name": "scope-check",
+          "specJson": "{}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3
+        },
+        {
+          "kind": "command",
+          "name": "build",
+          "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"build\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:command_result_v1"
+        },
+        {
+          "kind": "command",
+          "name": "full-suite",
+          "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"test\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:command_result_v1"
+        },
+        {
+          "kind": "acp_agent",
+          "name": "review",
+          "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/deepseek-v4.1-flash\", \"fallback_models\": [\"opencode-go/qwen3.8-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"REVIEW GATE for task {{task.id}} ({{workspace}}): {{task.title}}\\n\\nTASK TEXT:\\n{{task.description}}\\n\\nDECLARED SCOPE:\\n{{task.scope}}\\n\\nPATHS CHANGED OUTSIDE THE DECLARED SCOPE (judge whether each was necessary): {{step.scope-check.outcome.outOfScopePaths}}\\n\\nThis review step's id is {{step.id}}. Read the packet through the worktrack MCP tools (task_get, task_workflow_get with attempts, task_comments_list, task_workflow_review_change_packet) and inspect the real git changes and the recorded gate output in this checkout. Verify every acceptance criterion, the negative cases, and that the evidence is real rather than asserted. Missing evidence is a blocker.\\n\\nFetch workflow_schema_get(name=reviewer_verdict_v1), then submit the verdict through task_workflow_step_verdict_submit(taskId={{task.id}}, stepId={{step.id}}, verdict=...). A final message is not a submission. On fail, set rewind_to to the implement step's id from task_workflow_get. Pass only with status passed, verdict pass, confidence high and no blockers.\\nThis is a review-only turn: do not edit files, commit, force gates, delegate, or change models.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:reviewer_verdict_v1"
+        }
+      ]
+    },
+    {
+      "name": "reader-bugfix",
+      "description": "Bug fix, test first. The previous version had NO implementer: it ran the suite, checked scope, ran the suite again and asked for a review of nothing.",
+      "autoAttachOnTags": [
+        "bugfix"
+      ],
+      "steps": [
+        {
+          "kind": "acp_agent",
+          "name": "implement",
+          "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/qwen3.8-flash\", \"fallback_models\": [\"opencode-go/deepseek-v4.1-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_write\", \"timeout_seconds\": 3600, \"stall_seconds\": 1800, \"prompt\": \"Implement task {{task.id}} in workspace {{workspace}}.\\n{{task.title}}\\n{{task.description}}\\nScope: {{task.scope}}\\n{{task.primer}}\\nReproduce the stated behaviour with a focused failing test first, then make it pass, then run `pnpm -r build` and `pnpm -r test` through tman. Record the real RED and GREEN output.\\nThe execution cwd is the repository drain selected; every command and every piece of evidence must come from that same checkout. Read AGENTS.md and any applicable rules first. Preserve unrelated edits. Never commit a failing state. Commit logical units with conventional subjects and a final trailer worktrack-task: {{task.id}}. Do not push. Partial work is not completion: report what you did not finish. Do not alter workflows, force gates, delegate, or start child sessions.\"}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:acp_result_v1"
+        },
+        {
+          "kind": "file_scope",
+          "name": "fix-scope",
+          "specJson": "{}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3
+        },
+        {
+          "kind": "command",
+          "name": "build",
+          "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"build\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:command_result_v1"
+        },
+        {
+          "kind": "command",
+          "name": "full-suite",
+          "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"test\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:command_result_v1"
+        },
+        {
+          "kind": "acp_agent",
+          "name": "review",
+          "specJson": "{\"agent\": {\"argv\": [\"/home/beagle/.local/bin/opencode-acp\", \"acp\"]}, \"model\": \"opencode-go/deepseek-v4.1-flash\", \"fallback_models\": [\"opencode-go/qwen3.8-flash\"], \"permissions\": \"allow_all\", \"fs\": \"read_only\", \"timeout_seconds\": 2700, \"stall_seconds\": 1800, \"prompt\": \"REVIEW GATE for task {{task.id}} ({{workspace}}): {{task.title}}\\n\\nTASK TEXT:\\n{{task.description}}\\n\\nDECLARED SCOPE:\\n{{task.scope}}\\n\\nPATHS CHANGED OUTSIDE THE DECLARED SCOPE (judge whether each was necessary): {{step.scope-check.outcome.outOfScopePaths}}\\n\\nThis review step's id is {{step.id}}. Read the packet through the worktrack MCP tools (task_get, task_workflow_get with attempts, task_comments_list, task_workflow_review_change_packet) and inspect the real git changes and the recorded gate output in this checkout. Verify every acceptance criterion, the negative cases, and that the evidence is real rather than asserted. Missing evidence is a blocker.\\n\\nFetch workflow_schema_get(name=reviewer_verdict_v1), then submit the verdict through task_workflow_step_verdict_submit(taskId={{task.id}}, stepId={{step.id}}, verdict=...). A final message is not a submission. On fail, set rewind_to to the implement step's id from task_workflow_get. Pass only with status passed, verdict pass, confidence high and no blockers.\\nThis is a review-only turn: do not edit files, commit, force gates, delegate, or change models.\", \"mcpServers\": [{\"name\": \"worktrack\", \"command\": \"/home/beagle/.local/bin/worktrack-mcp\", \"args\": [], \"env\": [{\"name\": \"WORKTRACK_DB\", \"value\": \"/home/beagle/.local/share/worktrack/worktrack-mcp.db\"}]}]}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:reviewer_verdict_v1"
+        }
+      ]
+    },
+    {
+      "name": "reader-epic",
+      "description": "Epic container: wait for the slices, then prove the tree still builds and passes.",
+      "autoAttachOnTags": [
+        "epic"
+      ],
+      "steps": [
+        {
+          "kind": "subtask_gate",
+          "name": "slices-done",
+          "specJson": "{\"match\": {\"tag\": \"slice\"}, \"require\": {\"minCount\": 1, \"status\": [\"done\"]}}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:subtask_gate_eval_v1"
+        },
+        {
+          "kind": "command",
+          "name": "build",
+          "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"build\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:command_result_v1"
+        },
+        {
+          "kind": "command",
+          "name": "full-suite",
+          "specJson": "{\"argv\": [\"tman\", \"run\", \"--\", \"pnpm\", \"-r\", \"test\"], \"expect_exit\": 0, \"timeout_seconds\": 1800}",
+          "required": true,
+          "allowSkip": false,
+          "maxAttempts": 3,
+          "outcomeSchemaRef": "builtin:command_result_v1"
+        }
+      ]
+    }
+  ]
+}
