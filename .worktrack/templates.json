@@ -1,5 +1,12 @@
 {
   "stack": "generic",
+  "delivery": {
+    "landing": "task-branch",
+    "push": "after-each-merge",
+    "gates": [
+      "test"
+    ]
+  },
   "templates": [
     {
       "name": "reader-spike",
