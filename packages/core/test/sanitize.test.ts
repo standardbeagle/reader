@@ -73,6 +73,25 @@ describe("sanitizeHtml", () => {
     expect(out).not.toContain("microphone");
   });
 
+  it("replaces an interactive Astro island with a note linking the original page", () => {
+    const island = (inner: string) => `<astro-island uid="a" component-url="/_astro/Shop.js" client="visible">${inner}</astro-island>`;
+    const page = "https://example.com/posts/one/";
+    const out = sanitizeHtml(`<p>Before</p>${island('<div><canvas></canvas><span>-5.37</span><button>Reset</button></div>')}<p>After</p>`, page);
+    expect(out).toBe(`<p>Before</p><p class="interactive-figure"><a href="${page}" target="_blank" rel="noopener noreferrer">Interactive figure</a> — it runs only on the original page.</p><p>After</p>`);
+
+    // Rendered only in the browser: there is nothing to show at all.
+    expect(sanitizeHtml(island(""), page)).toContain('class="interactive-figure"');
+    // No page to point at: the note stands without a link.
+    expect(sanitizeHtml(island("<canvas></canvas>"))).toBe('<p class="interactive-figure">Interactive figure — it runs only on the original page.</p>');
+    // One note for a figure, however many islands it is built from.
+    expect(sanitizeHtml(island(`<input>${island("<canvas></canvas>")}`), page).match(/interactive-figure/g)).toHaveLength(1);
+  });
+
+  it("keeps the content of an Astro island that only wraps ordinary markup", () => {
+    const out = sanitizeHtml('<astro-island uid="a" client="load"><div><p>Plain <strong>text</strong></p></div></astro-island>', "https://example.com/p/");
+    expect(out).toBe("<div><p>Plain <strong>text</strong></p></div>");
+  });
+
   it("turns supported custom video embeds into sandboxed iframes", () => {
     const out = sanitizeHtml('<lite-youtube videoid="dQw4w9WgXcQ" title="Demo"></lite-youtube>');
     expect(out).toContain('src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"');

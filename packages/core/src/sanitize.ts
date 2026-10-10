@@ -9,11 +9,42 @@ const URL_ATTRIBUTES = ["href", "src", "poster", "cite"] as const;
 
 const YOUTUBE_EMBED_ALLOW = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
 
-function normalizeKnownEmbeds(dirty: string): string {
+/** What an interactive Astro island's server-rendered markup contains that plain content does not. */
+const INTERACTIVE_ISLAND_PARTS = "canvas, button, input, select, textarea";
+/** Marks the note left in place of an interactive figure; the web app styles it and opens the embedded page from it. */
+const INTERACTIVE_FIGURE_CLASS = "interactive-figure";
+
+/**
+ * An Astro island is a component the page's own scripts bring to life. Those
+ * scripts are removed here, so an interactive one would be left as a dead
+ * heap of its labels and numbers. It is replaced with a note pointing at the
+ * original page. An island that only wraps ordinary content is left alone.
+ */
+function replaceInteractiveIslands(document: Document, pageUrl: string | undefined): void {
+  for (const island of Array.from(document.querySelectorAll("astro-island"))) {
+    // Already gone with an enclosing island.
+    if (!island.isConnected) continue;
+    if (island.firstElementChild && !island.querySelector(INTERACTIVE_ISLAND_PARTS)) continue;
+    const note = document.createElement("p");
+    note.setAttribute("class", INTERACTIVE_FIGURE_CLASS);
+    if (pageUrl) {
+      const link = document.createElement("a");
+      link.setAttribute("href", pageUrl);
+      link.textContent = "Interactive figure";
+      note.append(link, " — it runs only on the original page.");
+    } else {
+      note.textContent = "Interactive figure — it runs only on the original page.";
+    }
+    island.replaceWith(note);
+  }
+}
+
+function normalizeKnownEmbeds(dirty: string, pageUrl: string | undefined): string {
   // Building a JSDOM document is expensive; skip it unless there is an embed to
   // rewrite. Sanitize runs per article on every content read.
-  if (!dirty.includes("lite-youtube")) return dirty;
+  if (!dirty.includes("lite-youtube") && !dirty.includes("astro-island")) return dirty;
   const document = new JSDOM(`<body>${dirty}</body>`).window.document;
+  replaceInteractiveIslands(document, pageUrl);
   for (const node of Array.from(document.querySelectorAll("lite-youtube"))) {
     const videoId = node.getAttribute("videoid")?.trim() ?? "";
     if (!/^[A-Za-z0-9_-]{6,64}$/.test(videoId)) {
@@ -110,7 +141,7 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 export function sanitizeHtml(dirty: string, baseUrl?: string): string {
   activeBaseUrl = baseUrl;
   try {
-    return DOMPurify.sanitize(normalizeKnownEmbeds(dirty), {
+    return DOMPurify.sanitize(normalizeKnownEmbeds(dirty, baseUrl), {
     ALLOWED_TAGS: [
       "a", "abbr", "audio", "b", "blockquote", "br", "code", "dd", "del", "div", "dl",
       "dt", "em", "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6",
