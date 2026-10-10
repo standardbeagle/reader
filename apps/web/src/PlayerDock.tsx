@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   afterPlayed, currentItem, jumpTo, playRequestCount, registerSeek, removeAt, savePosition, step, updateQueue, usePlayQueue,
   EMPTY_QUEUE, type QueueItem,
@@ -105,6 +105,14 @@ export function PlayerDock(props: {
     return () => window.removeEventListener("message", onMessage);
   }, [video?.id, requests]);
 
+  // The embed's address is fixed when playback is asked for. The saved position
+  // moves as the video plays, and rebuilding the address from it on a later
+  // render (any navigation re-renders the dock) would reload the frame mid-play.
+  const youtubeSrc = useMemo(() => video && `${YOUTUBE_ORIGIN}/embed/${video.id}?${new URLSearchParams({
+    rel: "0", enablejsapi: "1", origin: window.location.origin,
+    autoplay: requests > 0 ? "1" : "0", start: String(Math.floor(queue.position)),
+  })}`, [video?.id, requests]);
+
   if (!item) return null;
 
   const listen = () => {
@@ -112,10 +120,6 @@ export function PlayerDock(props: {
     target?.postMessage(JSON.stringify({ event: "listening", id: 1, channel: "widget" }), YOUTUBE_ORIGIN);
     target?.postMessage(JSON.stringify({ event: "command", func: "addEventListener", args: ["onStateChange"], id: 1, channel: "widget" }), YOUTUBE_ORIGIN);
   };
-  const youtubeSrc = video && `${YOUTUBE_ORIGIN}/embed/${video.id}?${new URLSearchParams({
-    rel: "0", enablejsapi: "1", origin: window.location.origin,
-    autoplay: requests > 0 ? "1" : "0", start: String(Math.floor(queue.position)),
-  })}`;
   const hasPrev = queue.index > 0;
   const hasNext = queue.index < queue.items.length - 1;
 
