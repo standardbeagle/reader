@@ -1,13 +1,21 @@
+/** What a feed carries, derived by the server from its address and articles. */
+export type FeedKind = "article" | "podcast" | "video" | "social" | "library";
+export const FEED_KINDS: readonly FeedKind[] = ["article", "podcast", "video", "social", "library"];
+/** Playable articles only: any media, or just audio or just video. */
+export type MediaFilter = "any" | "audio" | "video";
 export interface Feed {
   id: string; url: string; title: string; siteUrl: string | null;
   unreadCount: number; status: "ok" | "broken";
   lastFetchedAt: string | null; lastError: string | null; errorCount: number;
   credentialId?: string | null;
+  /** The user's own grouping; null when uncategorized. */
+  category: string | null;
+  kind: FeedKind;
 }
 /** A connected account or feed sign-in. The secret never leaves the server. */
 export interface Credential {
   id: string;
-  provider: "generic" | "mastodon" | "reddit";
+  provider: "generic" | "mastodon" | "reddit" | "libby";
   kind: "basic" | "bearer" | "oauth2";
   label: string;
   origin: string;
@@ -38,9 +46,26 @@ export type Transcript =
 export interface Chapter { start: number; title: string; url: string | null; img: string | null }
 /** embeddable is null when the page could not be checked. */
 export interface Embeddability { embeddable: boolean | null; reason: string | null }
+/** What a dynamic list contains: every article matching all the set fields. */
+export interface ListRule {
+  feedIds?: string[];
+  feedCategory?: string;
+  feedKind?: FeedKind;
+  category?: string;
+  media?: MediaFilter;
+  unreadOnly?: boolean;
+  maxAgeDays?: number;
+  order?: "newest" | "oldest";
+}
 export interface SavedList {
   id: string; title: string; visibility: "public" | "private";
   token: string; createdAt: string; itemCount: number;
+  /** Null for a manual list (saved articles, in order); a rule fills a dynamic list. */
+  rule: ListRule | null;
+}
+export interface ArticleQueryParams {
+  feedId?: string; listId?: string; feedCategory?: string; feedKind?: FeedKind; category?: string;
+  media?: MediaFilter; before?: string; beforeId?: string; limit?: number;
 }
 export interface CategoryCount { name: string; count: number }
 export interface ArticleCursor { before: string; beforeId: string }
@@ -54,7 +79,7 @@ export interface FeedRefreshResult {
 }
 
 export interface Ingestor {
-  id: string; kind: "mastodon" | "bluesky" | "reddit" | "composite"; config: Record<string, unknown>;
+  id: string; kind: "mastodon" | "bluesky" | "reddit" | "composite" | "libby"; config: Record<string, unknown>;
   feedId: string; feedTitle: string | null; fetchIntervalMin: number;
   digestMode: "realtime" | "hourly" | "daily"; filterThreshold: number;
   llmEnabled: boolean; status: "ok" | "broken"; pendingCount: number;
@@ -69,9 +94,10 @@ export interface ImportResult {
   skipped: { title: string; url: string; reason: string }[];
 }
 
-export function feedPlatform(url: string): "mastodon" | "bluesky" | "reddit" | "composite" | null {
-  const m = /^ingestor:\/\/(mastodon|bluesky|reddit|composite)\//.exec(url);
-  return (m?.[1] as "mastodon" | "bluesky" | "reddit" | "composite" | undefined) ?? null;
+export type FeedPlatform = "mastodon" | "bluesky" | "reddit" | "composite" | "libby";
+export function feedPlatform(url: string): FeedPlatform | null {
+  const m = /^ingestor:\/\/(mastodon|bluesky|reddit|composite|libby)\//.exec(url);
+  return (m?.[1] as FeedPlatform | undefined) ?? null;
 }
 
 // ApiError lives in apiShared so the demo adapter can throw it without
@@ -128,11 +154,16 @@ const httpApi = {
   importYoutubeTakeout: (csv: string) =>
     req<ImportResult>("/api/v1/feeds/import/youtube", { method: "POST", json: { csv } }),
   unsubscribe: (id: string) => req<void>(`/api/v1/feeds/${id}`, { method: "DELETE" }),
-  listArticles: (params: { feedId?: string; listId?: string; category?: string; before?: string; beforeId?: string; limit?: number } = {}) => {
+  setFeedCategory: (id: string, category: string | null) =>
+    req<Feed>(`/api/v1/feeds/${id}`, { method: "PATCH", json: { category } }),
+  listArticles: (params: ArticleQueryParams = {}) => {
     const q = new URLSearchParams();
     if (params.feedId) q.set("feed_id", params.feedId);
     if (params.listId) q.set("list_id", params.listId);
+    if (params.feedCategory) q.set("feed_category", params.feedCategory);
+    if (params.feedKind) q.set("feed_kind", params.feedKind);
     if (params.category) q.set("category", params.category);
+    if (params.media) q.set("media", params.media);
     if (params.before) q.set("before", params.before);
     if (params.beforeId) q.set("before_id", params.beforeId);
     if (params.limit) q.set("limit", String(params.limit));
@@ -152,8 +183,12 @@ const httpApi = {
   setSnooze: (id: string, until: string | null) =>
     req<void>(`/api/v1/articles/${id}/snooze`, { method: "POST", json: { until } }),
   listLists: () => req<{ lists: SavedList[] }>("/api/v1/lists").then((r) => r.lists),
-  createList: (input: { title: string; visibility: "public" | "private" }) =>
+  createList: (input: { title: string; visibility: "public" | "private"; rule?: ListRule }) =>
     req<SavedList>("/api/v1/lists", { method: "POST", json: input }),
+  updateList: (id: string, patch: { title?: string; rule?: ListRule }) =>
+    req<SavedList>(`/api/v1/lists/${id}`, { method: "PATCH", json: patch }),
+  setListItems: (listId: string, articleIds: string[]) =>
+    req<void>(`/api/v1/lists/${listId}/items`, { method: "PUT", json: { articleIds } }),
   deleteList: (id: string) => req<void>(`/api/v1/lists/${id}`, { method: "DELETE" }),
   addToList: (listId: string, articleId: string) =>
     req<void>(`/api/v1/lists/${listId}/items`, { method: "POST", json: { articleId } }),

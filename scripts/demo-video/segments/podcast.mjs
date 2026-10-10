@@ -7,7 +7,7 @@ export default async function run(d) {
     // Wait for the list to swap to the podcast before opening its newest episode.
     await __until(() => document.querySelector(".list li button")?.textContent.includes("Episode"));
     await __click(document.querySelector(".list li button"));
-    await __until(() => document.querySelector(".episode-player"));`);
+    await __until(() => document.querySelector(".episode .media-card"));`);
   d.mark("episode");
   await d.sleep(1500);
   await act(d, `await __click(__q(".episode-extra summary", "Chapters")); await __until(() => document.querySelector(".episode-chapters li"));`);

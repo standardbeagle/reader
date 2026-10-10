@@ -12,31 +12,32 @@ import { useTheme, toggleTheme } from "./theme";
 import { isStandalone, promptInstall } from "./installPrompt";
 import { useMediaQuery } from "./useMediaQuery";
 import { useColumnLayout } from "./useColumnLayout";
-import { idFromRouteKey, routeKey, safeUrl } from "./urls";
+import { idFromRouteKey, safeUrl } from "./urls";
 import { navNeighbor } from "./articleNav";
+import { PlayerDock } from "./PlayerDock";
+import { currentItem, enqueue, isPlayable, playAll, playNow, queueItem, updateQueue, usePlayQueue, type QueueItem } from "./playQueue";
+import { streamArticlePath, streamFromParams, streamKey, streamPath, streamQuery, streamTitle, type Stream, type StreamTitles } from "./streams";
 
-function feedPath(feedId: string | null, feedTitle?: string | null): string {
-  return feedId ? `/feeds/${routeKey(feedTitle ?? "feed", feedId)}` : "/";
+/** Two paths that differ only in how they are percent-escaped are the same address. */
+function samePath(a: string, b: string): boolean {
+  try {
+    return decodeURIComponent(a) === decodeURIComponent(b);
+  } catch {
+    // A hand-typed address with a broken escape cannot be compared; leave it alone.
+    return true;
+  }
 }
 
-function articlePath(article: Article, feedTitle?: string | null): string {
-  return `/feeds/${routeKey(feedTitle ?? "feed", article.feedId)}/articles/${routeKey(article.title, article.id)}`;
-}
-
-function listPath(listId: string, listTitle?: string | null): string {
-  return `/lists/${routeKey(listTitle ?? "list", listId)}`;
-}
-
-function listArticlePath(article: Article, listId: string, listTitle?: string | null): string {
-  return `${listPath(listId, listTitle)}/articles/${routeKey(article.title, article.id)}`;
-}
+/** How many playable items "Play" pulls from a stream into the queue. */
+const PLAY_STREAM_LIMIT = 200;
 
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = useParams<{ feedId?: string; listId?: string; articleId?: string }>();
-  const feedId = params.feedId ? idFromRouteKey(params.feedId) : null;
-  const listId = params.listId ? idFromRouteKey(params.listId) : null;
+  const params = useParams<{ feedId?: string; listId?: string; feedCategory?: string; feedKind?: string; articleId?: string }>();
+  const stream = streamFromParams(params);
+  const streamId = streamKey(stream);
+  const feedId = stream.kind === "feed" ? stream.feedId : null;
   const articleId = params.articleId ? idFromRouteKey(params.articleId) : null;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [navDir, setNavDir] = useState<"prev" | "next" | null>(null);
@@ -60,10 +61,9 @@ export function App() {
 
   const PAGE_SIZE = 50;
   const articles = useInfiniteQuery({
-    queryKey: ["articles", feedId, listId, category],
+    queryKey: ["articles", streamId, category],
     queryFn: ({ pageParam }) => api.listArticles({
-      ...(feedId ? { feedId } : {}),
-      ...(listId ? { listId } : {}),
+      ...streamQuery(stream),
       ...(category ? { category } : {}),
       limit: PAGE_SIZE,
       ...pageParam,
@@ -78,12 +78,13 @@ export function App() {
   const categories = useQuery({
     queryKey: ["categories", feedId],
     queryFn: () => api.listCategories(feedId ?? undefined),
-    // Subjects are a feed-level filter; saved lists have their own membership.
-    enabled: !listId,
+    // Subjects are counted per feed or across everything; a list, category or
+    // type would show counts for articles that are not in it.
+    enabled: stream.kind === "all" || stream.kind === "feed",
   });
   // Switching feeds, lists, or filters invalidates the cursor position; the
   // query key already resets pages, but a stale selection must not survive either.
-  useEffect(() => { setCategory(null); }, [feedId, listId]);
+  useEffect(() => { setCategory(null); }, [streamId]);
   const articleList = articles.data?.pages.flatMap((page) => page.articles) ?? [];
   const articleFromList = articleList.find((item) => item.id === articleId);
   const deepArticle = useQuery({
@@ -94,10 +95,13 @@ export function App() {
   });
   const article = deepArticle.data ?? null;
   const selectedArticle = article ?? articleFromList ?? null;
-  const selectedFeedTitle = (id: string | null) => feeds.data?.find((feed) => feed.id === id)?.title ?? null;
   const selectedListTitle = (id: string | null) => lists.data?.find((list) => list.id === id)?.title ?? null;
-  const articleHref = (target: Article) =>
-    listId ? listArticlePath(target, listId, selectedListTitle(listId)) : articlePath(target, selectedFeedTitle(target.feedId));
+  const titles: StreamTitles = {
+    feed: (id) => feeds.data?.find((feed) => feed.id === id)?.title ?? null,
+    list: selectedListTitle,
+  };
+  const articleHref = (target: Pick<Article, "id" | "feedId" | "title">) => streamArticlePath(stream, target, titles);
+  const queue = usePlayQueue();
 
   const refresh = useMutation({
     mutationFn: api.refreshFeed,
@@ -152,8 +156,25 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [shortcutNotice]);
 
-  const selectFeed = (id: string | null) => { navigate(feedPath(id, selectedFeedTitle(id))); setDrawerOpen(false); };
-  const selectList = (id: string | null) => { navigate(id ? listPath(id, selectedListTitle(id)) : "/"); setDrawerOpen(false); };
+  const selectStream = (next: Stream) => { navigate(streamPath(next, titles)); setDrawerOpen(false); };
+
+  // Play a stream: its audio and video, in the stream's own order, replace the queue.
+  const playStream = useMutation({
+    mutationFn: () => api.listArticles({ ...streamQuery(stream), media: "any", limit: PLAY_STREAM_LIMIT }),
+    onSuccess: (page) => {
+      const name = streamTitle(stream, titles);
+      if (page.articles.length === 0) return setShortcutNotice(`Nothing to play in “${name}”.`);
+      updateQueue(() => playAll(page.articles.map(queueItem), name));
+      setShortcutNotice(`Playing ${page.articles.length}${page.nextCursor ? "+" : ""} from “${name}”.`);
+    },
+    onError: () => setShortcutNotice("Could not load that stream to play."),
+  });
+  const queueArticle = (target: Article, play: boolean) => {
+    if (!isPlayable(target)) return setShortcutNotice("This article has no audio or video.");
+    updateQueue((q) => (play ? playNow(q, queueItem(target)) : enqueue(q, queueItem(target))));
+    if (!play) setShortcutNotice(`Added “${target.title}” to the queue.`);
+  };
+  const openQueueItem = (item: QueueItem) => navigate(streamArticlePath({ kind: "feed", feedId: item.feedId }, item, titles));
   const selectArticle = (next: Article) => { setNavDir(null); navigate(articleHref(next)); setDrawerOpen(false); };
   const goArticle = (target: Article, dir: "prev" | "next") => {
     setNavDir(dir);
@@ -176,23 +197,12 @@ export function App() {
 
   useEffect(() => {
     if (!feeds.data) return;
-    if (article) {
-      const canonical = listId
-        ? listArticlePath(article, listId, selectedListTitle(listId))
-        : articlePath(article, selectedFeedTitle(article.feedId));
-      if (location.pathname !== canonical) navigate(canonical, { replace: true });
-      return;
-    }
-    if (listId && !articleId) {
-      const canonical = listPath(listId, selectedListTitle(listId));
-      if (location.pathname !== canonical) navigate(canonical, { replace: true });
-      return;
-    }
-    if (feedId && !articleId) {
-      const canonical = feedPath(feedId, selectedFeedTitle(feedId));
-      if (location.pathname !== canonical) navigate(canonical, { replace: true });
-    }
-  }, [article, articleId, feedId, listId, feeds.data, lists.data, location.pathname, navigate]);
+    // The address carries titles for readability; once they are known, settle
+    // on the one true spelling. Compared decoded: the router hands back
+    // pathname with its own escaping, which differs from encodeURIComponent's.
+    const canonical = article ? articleHref(article) : articleId || stream.kind === "all" ? null : streamPath(stream, titles);
+    if (canonical && !samePath(location.pathname, canonical)) navigate(canonical, { replace: true });
+  }, [article, articleId, streamId, feeds.data, lists.data, location.pathname, navigate]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -255,6 +265,12 @@ export function App() {
         else setShortcutNotice("Select a feed before refreshing it.");
         return;
       }
+      if (event.key === "p" || event.key === "q") {
+        event.preventDefault();
+        if (selectedArticle) queueArticle(selectedArticle, event.key === "p");
+        else setShortcutNotice("Select an article before playing it.");
+        return;
+      }
       if (event.key === "o") {
         const href = safeUrl(selectedArticle?.url ?? null);
         if (href) window.open(href, "_blank", "noopener,noreferrer");
@@ -280,7 +296,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
     // refresh.mutate is stable; depending on the mutation object would re-bind the
     // listener every render.
-  }, [articleList, feedId, listId, feeds.data, lists.data, listShortcuts, navigate, refresh.mutate, snooze.mutate, saveToList.mutate, setRead.mutate, selectedArticle, shortcutHelp, toggle, unreadNav]);
+  }, [articleList, streamId, feeds.data, lists.data, listShortcuts, navigate, refresh.mutate, snooze.mutate, saveToList.mutate, setRead.mutate, selectedArticle, shortcutHelp, toggle, unreadNav]);
 
   const loadMore = useCallback(() => {
     if (articles.hasNextPage && !articles.isFetchingNextPage) void articles.fetchNextPage();
@@ -292,7 +308,7 @@ export function App() {
   } as CSSProperties;
 
   return (
-    <div className="app">
+    <div className={`app${currentItem(queue) ? " has-dock" : ""}`}>
       <header className="header">
         {isNarrow && (
           <button className="icon-btn hamburger" aria-label="Toggle feeds" onClick={() => setDrawerOpen((v) => !v)}>☰</button>
@@ -326,10 +342,8 @@ export function App() {
       </header>
       <div className={`layout${showReader ? " show-reader" : ""}${layout.readerCollapsed ? " reader-collapsed" : ""}`} style={gridStyle}>
         <Sidebar
-          selectedFeedId={feedId}
-          selectedListId={listId}
-          onSelectFeed={selectFeed}
-          onSelectList={selectList}
+          stream={stream}
+          onSelectStream={selectStream}
           open={!isNarrow || drawerOpen}
           drawer={isNarrow}
           onCloseDrawer={() => setDrawerOpen(false)}
@@ -354,6 +368,10 @@ export function App() {
           collapsed={layout.listCollapsed}
           onToggleCollapsed={() => toggle("list")}
           onActionError={setShortcutNotice}
+          title={streamTitle(stream, titles)}
+          onPlayStream={() => playStream.mutate()}
+          playingStream={playStream.isPending}
+          onQueue={(target) => queueArticle(target, false)}
         />
         <ColumnResizer className="list-resizer" label="Resize articles column" value={layout.listWidth} onResize={(delta) => resize("list", delta)} />
         <ArticleView
@@ -366,7 +384,7 @@ export function App() {
           nextArticle={nextArticle}
           onNavArticle={goArticle}
           navDir={navDir}
-          onBack={isMobile ? () => navigate(listId ? listPath(listId, selectedListTitle(listId)) : feedPath(selectedArticle?.feedId ?? feedId, selectedFeedTitle(selectedArticle?.feedId ?? feedId))) : undefined}
+          onBack={isMobile ? () => navigate(streamPath(stream.kind === "all" && selectedArticle ? { kind: "feed", feedId: selectedArticle.feedId } : stream, titles)) : undefined}
           collapsed={layout.readerCollapsed}
           onToggleCollapsed={() => toggle("reader")}
           onActionError={setShortcutNotice}
@@ -386,6 +404,7 @@ export function App() {
           </div>
         </div>
       )}
+      <PlayerDock onOpen={openQueueItem} onPlayed={(item) => setRead.mutate({ id: item.id, read: true })} />
       <ShortcutHints
         open={shortcutHelp}
         notice={shortcutNotice}

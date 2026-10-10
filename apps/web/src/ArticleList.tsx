@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Article, type CategoryCount } from "./api";
 import { safeUrl } from "./urls";
 import { useMediaQuery } from "./useMediaQuery";
+import { isPlayable } from "./playQueue";
 
 function dayKeyOf(iso: string | null): string | null {
   if (!iso) return null;
@@ -58,6 +59,13 @@ export function ArticleList(props: {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onActionError?: (message: string) => void;
+  /** The stream on show, as the panel's heading. */
+  title: string;
+  /** Queue up the stream's audio and video. */
+  onPlayStream: () => void;
+  playingStream: boolean;
+  /** Add one article to the play queue. */
+  onQueue: (a: Article) => void;
 }) {
   const qc = useQueryClient();
   const setRead = useMutation({
@@ -122,8 +130,11 @@ export function ArticleList(props: {
       className={`${a.readAt ? "read" : "unread"} ${props.selectedId === a.id ? "selected" : ""}`}
     >
       <button onClick={() => openArticle(a)}>
-        <span className="t">{a.media && <span className="episode-badge" aria-label="Episode">{a.media.type?.startsWith("video/") ? "▶" : "♪"}</span>}{a.title}</span>
+        <span className="t">{isPlayable(a) && <span className="episode-badge" aria-label={a.media?.type?.startsWith("audio/") ? "Audio" : a.media ? "Episode" : "Video"}>{!a.media || a.media.type?.startsWith("video/") ? "▶" : "♪"}</span>}{a.title}</span>
       </button>
+      {isPlayable(a) && (
+        <button className="row-queue" title="Add to the play queue" aria-label={`Add ${a.title} to the play queue`} onClick={() => props.onQueue(a)}>+</button>
+      )}
       <span className="date">{a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : ""}</span>
     </li>
   );
@@ -196,8 +207,15 @@ export function ArticleList(props: {
       onScroll={onListScroll}
     >
       <div className="panel-head">
-        <h2>Articles</h2>
+        <h2 title={props.title}>{props.title}</h2>
         <div className="head-actions">
+          <button
+            className="view-toggle"
+            onClick={props.onPlayStream}
+            disabled={props.playingStream}
+            title="Play this stream's audio and video"
+            aria-label={`Play the audio and video in ${props.title}`}
+          >▶</button>
           <button
             className="view-toggle"
             onClick={toggleView}

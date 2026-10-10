@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Article } from "./api";
+import { api, FEED_KINDS, type Article, type FeedKind, type ListRule, type MediaFilter } from "./api";
+import { FEED_KIND_LABELS } from "./streams";
 import { setListShortcut, useListShortcuts } from "./listShortcuts";
 
-function useDialog(open: boolean) {
+export function useDialog(open: boolean) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -14,15 +15,37 @@ function useDialog(open: boolean) {
   return ref;
 }
 
-function CreateListForm(props: { onCreated?: () => void; onActionError?: ((message: string) => void) | undefined }) {
+function CreateListForm(props: {
+  onCreated?: () => void;
+  onActionError?: ((message: string) => void) | undefined;
+  /** Offer the rule editor. Off where a list is being made to save an article into. */
+  allowDynamic?: boolean;
+}) {
   const [title, setTitle] = useState("");
   const [isPublic, setIsPublic] = useState(false);
+  // A dynamic list is described by a rule instead of filled by hand.
+  const [dynamic, setDynamic] = useState(false);
+  const [media, setMedia] = useState<MediaFilter | "">("");
+  const [feedKind, setFeedKind] = useState<FeedKind | "">("");
+  const [feedCategory, setFeedCategory] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [maxAgeDays, setMaxAgeDays] = useState("");
   const qc = useQueryClient();
+  const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds, enabled: dynamic });
+  const feedCategories = [...new Set((feeds.data ?? []).flatMap((f) => (f.category ? [f.category] : [])))].sort((a, b) => a.localeCompare(b));
+  const rule = (): ListRule => ({
+    ...(media ? { media } : {}),
+    ...(feedKind ? { feedKind } : {}),
+    ...(feedCategory ? { feedCategory } : {}),
+    ...(unreadOnly ? { unreadOnly } : {}),
+    ...(Number(maxAgeDays) >= 1 ? { maxAgeDays: Math.floor(Number(maxAgeDays)) } : {}),
+  });
   const create = useMutation({
-    mutationFn: () => api.createList({ title: title.trim(), visibility: isPublic ? "public" : "private" }),
+    mutationFn: () => api.createList({ title: title.trim(), visibility: isPublic ? "public" : "private", ...(dynamic ? { rule: rule() } : {}) }),
     onSuccess: () => {
       setTitle("");
       setIsPublic(false);
+      setDynamic(false);
       qc.invalidateQueries({ queryKey: ["lists"] });
       props.onCreated?.();
     },
@@ -51,6 +74,40 @@ function CreateListForm(props: { onCreated?: () => void; onActionError?: ((messa
         />
         Public — anyone with the RSS link can read this list
       </label>
+      {props.allowDynamic && (
+        <label className="list-public-toggle">
+          <input type="checkbox" checked={dynamic} onChange={(event) => setDynamic(event.target.checked)} />
+          Fill automatically — the list is whatever matches a rule right now
+        </label>
+      )}
+      {dynamic && (
+        <fieldset className="list-rule">
+          <legend>Include articles that match all of</legend>
+          <label htmlFor="rule-media">Media</label>
+          <select id="rule-media" value={media} onChange={(event) => setMedia(event.target.value as MediaFilter | "")}>
+            <option value="">Anything, playable or not</option>
+            <option value="any">Audio or video</option>
+            <option value="audio">Audio only</option>
+            <option value="video">Video only</option>
+          </select>
+          <label htmlFor="rule-kind">Feed type</label>
+          <select id="rule-kind" value={feedKind} onChange={(event) => setFeedKind(event.target.value as FeedKind | "")}>
+            <option value="">Any type</option>
+            {FEED_KINDS.map((kind) => <option key={kind} value={kind}>{FEED_KIND_LABELS[kind]}</option>)}
+          </select>
+          <label htmlFor="rule-category">Feed category</label>
+          <select id="rule-category" value={feedCategory} onChange={(event) => setFeedCategory(event.target.value)}>
+            <option value="">Any category</option>
+            {feedCategories.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+          <label htmlFor="rule-age">Published within (days)</label>
+          <input id="rule-age" type="number" min={1} max={3650} placeholder="Any time" value={maxAgeDays} onChange={(event) => setMaxAgeDays(event.target.value)} />
+          <label className="list-public-toggle">
+            <input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} />
+            Unread only — an article leaves the list once it is read or played
+          </label>
+        </fieldset>
+      )}
       <div className="feed-dialog-actions">
         <button type="submit" className="primary" disabled={create.isPending || !title.trim()}>
           {create.isPending ? "Creating…" : "Create list"}
@@ -73,8 +130,8 @@ export function CreateListDialog(props: { open: boolean; onClose: () => void; on
     >
       <div className="feed-dialog-body">
         <h2 id="create-list-title">New list</h2>
-        <p className="feed-dialog-sub">Lists keep articles permanently. A public list is itself an RSS feed you can share.</p>
-        <CreateListForm onCreated={props.onClose} onActionError={props.onActionError} />
+        <p className="feed-dialog-sub">A list is a playlist: articles you save, kept in order, or a rule that fills itself. A public list is itself an RSS feed you can share.</p>
+        <CreateListForm onCreated={props.onClose} onActionError={props.onActionError} allowDynamic />
         <div className="feed-dialog-actions">
           <button type="button" className="secondary" onClick={props.onClose}>Cancel</button>
         </div>
@@ -91,6 +148,8 @@ export function SaveToListDialog(props: { article: Article; onClose: () => void;
   // The full record carries listIds; list rows do not.
   const detail = useQuery({ queryKey: ["article", props.article.id], queryFn: () => api.getArticle(props.article.id) });
   const memberOf = new Set(detail.data?.listIds ?? props.article.listIds ?? []);
+  // A dynamic list fills itself from its rule; only manual lists can be saved to.
+  const manualLists = (lists.data ?? []).filter((list) => !list.rule);
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["lists"] });
     qc.invalidateQueries({ queryKey: ["articles"] });
@@ -114,9 +173,9 @@ export function SaveToListDialog(props: { article: Article; onClose: () => void;
       <div className="feed-dialog-body">
         <h2 id="save-list-title">Save to list</h2>
         <p className="feed-dialog-sub">{props.article.title}</p>
-        {(lists.data ?? []).length > 0 && (
+        {manualLists.length > 0 && (
           <ul className="list-picker">
-            {(lists.data ?? []).map((list) => (
+            {manualLists.map((list) => (
               <li key={list.id}>
                 <label>
                   <input

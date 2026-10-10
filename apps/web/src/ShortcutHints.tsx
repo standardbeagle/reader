@@ -2,6 +2,7 @@ const shortcuts = [
   ["j / k", "next / previous article (marks it read)"],
   ["r", "refresh selected feed"],
   ["o", "open original"],
+  ["p / q", "play now / add to the play queue"],
   ["s / t / w", "snooze: later today / tomorrow / next week"],
   ["u", "unsnooze"],
   ["[ / ]", "collapse feeds / articles"],

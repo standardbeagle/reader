@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { EpisodePlayer } from "./EpisodePlayer";
-import { youtubeEmbedUrl, youtubeVideo, type YoutubeVideo } from "./youtube";
+import { MediaCard } from "./MediaCard";
+import { youtubeVideo } from "./youtube";
 import { api, type Article, type SavedList } from "./api";
 import { safeUrl } from "./urls";
 import { SaveToListDialog } from "./ListDialogs";
@@ -189,7 +190,7 @@ export function ArticleView(props: {
             <button className="panel-collapse" onClick={props.onToggleCollapsed} aria-expanded={true} aria-controls="reader-panel">Collapse reader</button>
           </div>
           <ArticleActions a={a} onActionError={props.onActionError} />
-          <ReaderBody a={a} view={view} setView={setView} showTabs={Boolean(safeUrl(a.url))} contentLoading={props.contentLoading} />
+          <ReaderBody a={a} view={view} setView={setView} showTabs={Boolean(safeUrl(a.url)) && !youtubeVideo(a.url)} contentLoading={props.contentLoading} />
           {showNav && (
             <nav className="article-nav" aria-label="Article navigation">
               {props.prevArticle ? (
@@ -230,26 +231,9 @@ function Heading({ a }: { a: Article }) {  const href = safeUrl(a.url);
   return <h2>{href ? <a href={href} target="_blank" rel="noopener noreferrer">{a.title}</a> : a.title}</h2>;
 }
 
-/** YouTube's own embed player; its watch pages refuse to be framed. */
-function YoutubePlayer({ video, title }: { video: YoutubeVideo; title: string }) {
-  return (
-    <figure className={`video-embed${video.short ? " video-embed-short" : ""}`}>
-      <iframe
-        src={youtubeEmbedUrl(video)}
-        title={`YouTube video: ${title}`}
-        loading="lazy"
-        // YouTube's embed refuses to play without the embedding page's origin as referrer.
-        referrerPolicy="strict-origin-when-cross-origin"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-        allowFullScreen
-      />
-    </figure>
-  );
-}
-
 function LeadMedia({ a, htmlBody }: { a: Article; htmlBody: string | null }) {
-  const video = youtubeVideo(a.url);
-  if (video) return <YoutubePlayer video={video} title={a.title} />;
+  // A YouTube link is the article's video; it plays in the dock like an episode.
+  if (youtubeVideo(a.url)) return <MediaCard a={a} />;
   const imageHref = safeUrl(a.imageUrl ?? null);
   const hasLeadImageInBody = Boolean(imageHref && htmlBody?.includes(imageHref));
   if (!imageHref || (htmlBody ? hasLeadImageInBody : false)) return null;
@@ -290,16 +274,15 @@ function ReaderBody(props: {
 }) {
   const a = props.a;
   const href = safeUrl(a.url);
-  const video = youtubeVideo(a.url);
-  // YouTube always has an embeddable player; other pages are checked by the
-  // server, since a refused frame is just blank in the browser.
+  // Whether a page allows framing is checked by the server, since a refused
+  // frame is just blank in the browser.
   const embed = useQuery({
     queryKey: ["embeddable", a.id],
     queryFn: () => api.getEmbeddability(a.id),
-    enabled: props.showTabs && !video,
+    enabled: props.showTabs,
     staleTime: Infinity,
   });
-  const blockedReason = !video && embed.data?.embeddable === false ? embed.data.reason : null;
+  const blockedReason = embed.data?.embeddable === false ? embed.data.reason : null;
   const { view, setView } = props;
   useEffect(() => { if (blockedReason && view === "embedded") setView("reader"); }, [blockedReason, view, setView]);
   // contentHtml is sanitized server-side; summary is only ever plain text (the
@@ -339,22 +322,20 @@ function ReaderBody(props: {
               ? `${hostOf(href)} doesn't allow its pages to be shown inside other sites: ${blockedReason}. Open the original in a new tab instead.`
               : undefined}
             onClick={() => { if (!blockedReason) props.setView("embedded"); }}
-          >{video ? "Video" : "Embedded page"}</button>
+          >Embedded page</button>
         </div>
       )}
       {props.view === "embedded" && href ? (
         <section id="embedded-content-panel" className="embedded-content-panel" role="tabpanel" aria-labelledby="embedded-tab">
-          {video ? <YoutubePlayer video={video} title={a.title} /> : (
-            <iframe
-              className="source-frame"
-              src={href}
-              title={`Original page: ${a.title}`}
-              loading="lazy"
-              referrerPolicy="strict-origin-when-cross-origin"
-              sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts"
-              allow="fullscreen; picture-in-picture"
-            />
-          )}
+          <iframe
+            className="source-frame"
+            src={href}
+            title={`Original page: ${a.title}`}
+            loading="lazy"
+            referrerPolicy="strict-origin-when-cross-origin"
+            sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts"
+            allow="fullscreen; picture-in-picture"
+          />
           <p className="embedded-content-actions"><a href={href} target="_blank" rel="noopener noreferrer">Open original in a new tab ↗</a></p>
         </section>
       ) : (
@@ -461,7 +442,8 @@ function ListChips(props: { a: Article; onActionError?: ((message: string) => vo
     },
     onError: () => props.onActionError?.("Could not update that list."),
   });
-  const all = lists.data ?? [];
+  // A dynamic list fills itself from its rule; only manual lists can be saved to.
+  const all = (lists.data ?? []).filter((list) => !list.rule);
   if (all.length === 0) {
     return <button type="button" onClick={props.onOpenDialog}>Save to list</button>;
   }

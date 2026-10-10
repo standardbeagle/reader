@@ -29,8 +29,3 @@ export function youtubeVideo(raw: string | null | undefined): YoutubeVideo | nul
   }
   return id && VIDEO_ID.test(id) ? { id, short } : null;
 }
-
-/** The privacy-enhanced embed player (no cookies until the viewer presses play). */
-export function youtubeEmbedUrl(video: YoutubeVideo): string {
-  return `https://www.youtube-nocookie.com/embed/${video.id}?rel=0`;
-}

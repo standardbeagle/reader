@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Article } from "./api";
-import { safeUrl } from "./urls";
+import { MediaCard } from "./MediaCard";
+import { playFrom } from "./playQueue";
 
 function clock(seconds: number): string {
   const s = Math.floor(seconds);
@@ -12,30 +13,20 @@ function clock(seconds: number): string {
 }
 
 /**
- * A podcast episode's audio or video, with Podcasting 2.0 chapters and
+ * A podcast episode: play and queue it, with Podcasting 2.0 chapters and
  * transcript. Both load only when opened; picking a chapter or a transcript
- * line seeks the player there.
+ * line plays the episode from there in the dock.
  */
 export function EpisodePlayer({ a }: { a: Article }) {
-  const player = useRef<HTMLMediaElement | null>(null);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const chapters = useQuery({ queryKey: ["chapters", a.id], queryFn: () => api.getChapters(a.id), enabled: chaptersOpen, staleTime: Infinity });
   const transcript = useQuery({ queryKey: ["transcript", a.id], queryFn: () => api.getTranscript(a.id), enabled: transcriptOpen, staleTime: Infinity });
-  const src = safeUrl(a.media?.url ?? null);
-  if (!src) return null;
-  const isVideo = a.media?.type?.startsWith("video/") ?? /\.(mp4|m4v|mov|webm)(\?|$)/i.test(src);
-  const seek = (seconds: number) => {
-    if (!player.current) return;
-    player.current.currentTime = seconds;
-    void player.current.play().catch(() => { /* autoplay refused; the position is still set */ });
-  };
+  const seek = (seconds: number) => playFrom(a, seconds);
 
   return (
     <section className="episode" aria-label="Episode">
-      {isVideo
-        ? <video ref={(el) => { player.current = el; }} className="episode-player" src={src} controls preload="metadata" playsInline />
-        : <audio ref={(el) => { player.current = el; }} className="episode-player" src={src} controls preload="metadata" />}
+      <MediaCard a={a} />
       {a.chaptersUrl && (
         <details className="episode-extra" onToggle={(e) => setChaptersOpen((e.target as HTMLDetailsElement).open)}>
           <summary>Chapters</summary>

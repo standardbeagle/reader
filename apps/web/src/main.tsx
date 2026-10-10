@@ -26,6 +26,10 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/feeds/:feedId/articles/:articleId" element={<App />} />
           <Route path="/lists/:listId" element={<App />} />
           <Route path="/lists/:listId/articles/:articleId" element={<App />} />
+          <Route path="/category/:feedCategory" element={<App />} />
+          <Route path="/category/:feedCategory/articles/:articleId" element={<App />} />
+          <Route path="/type/:feedKind" element={<App />} />
+          <Route path="/type/:feedKind/articles/:articleId" element={<App />} />
           <Route path="/articles/:articleId" element={<App />} />
           <Route path="*" element={<App />} />
         </Routes>

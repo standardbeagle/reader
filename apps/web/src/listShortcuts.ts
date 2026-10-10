@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 // Keys owned by the app-level keyboard handler; binding one to a list would
 // shadow the built-in action.
-export const RESERVED_SHORTCUT_KEYS = new Set(["j", "k", "r", "o", "s", "t", "w", "u", "[", "]", "?", "Escape"]);
+export const RESERVED_SHORTCUT_KEYS = new Set(["j", "k", "r", "o", "p", "q", "s", "t", "w", "u", "[", "]", "?", "Escape"]);
 
 const STORAGE_KEY = "reader-list-shortcuts-v1";
 

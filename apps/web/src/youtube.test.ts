@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { youtubeEmbedUrl, youtubeVideo } from "./youtube";
+import { youtubeVideo } from "./youtube";
 
 describe("youtubeVideo", () => {
   it("recognizes watch, youtu.be, Shorts and live links", () => {
@@ -16,9 +16,5 @@ describe("youtubeVideo", () => {
     expect(youtubeVideo("https://notyoutube.com/watch?v=Od6M0AXpcxQ")).toBeNull();
     expect(youtubeVideo(null)).toBeNull();
     expect(youtubeVideo("not a url")).toBeNull();
-  });
-
-  it("builds a privacy-enhanced embed URL", () => {
-    expect(youtubeEmbedUrl({ id: "Od6M0AXpcxQ", short: false })).toBe("https://www.youtube-nocookie.com/embed/Od6M0AXpcxQ?rel=0");
   });
 });

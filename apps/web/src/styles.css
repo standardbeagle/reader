@@ -814,3 +814,106 @@ kbd {
 .reader .video-embed-short { aspect-ratio: 9 / 16; max-height: 75vh; margin-inline: auto; }
 .reader .video-embed iframe { display: block; width: 100%; height: 100%; border: 0; border-radius: var(--radius); background: #000; }
 .reader-tab[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+
+/* Feed groups: a category or a type heads the feeds filed under it. */
+.group-select { max-width: 9.5em; padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text-dim); font-size: var(--fs-xs); }
+.sidebar li.feed-group { display: block; margin-top: var(--space-3); }
+.feed-group-head { display: flex; border-radius: var(--radius); }
+.feed-group-head > button, .feed-group-label {
+  flex: 1; display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2);
+  min-width: 0; padding: 6px 8px; text-align: left; border-radius: var(--radius);
+  color: var(--text-dim); font-size: var(--fs-xs); font-weight: 700; letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+.feed-group-head .feed-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-group-head > button:hover { color: var(--accent-text); background: var(--accent-bg); }
+.feed-group-head.selected > button { color: var(--accent-text); background: var(--bg-active); }
+
+/* Article list: the stream's name as the heading, and a queue button on playable rows. */
+.list .panel-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list li > button.row-queue {
+  flex: 0 0 auto; align-self: center; min-width: 30px; min-height: 30px; padding: 2px 6px;
+  border-radius: var(--radius); color: var(--text-dim); font-size: var(--fs-md);
+}
+.list li > button.row-queue:hover { color: var(--accent-text); background: var(--accent-bg); }
+
+/* An article's audio or video: a poster with Play and Queue. The player is the dock. */
+.media-card { margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-subtle); }
+.media-card-poster { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.media-card-short .media-card-poster { aspect-ratio: 9 / 16; max-height: 60vh; object-fit: contain; }
+.media-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
+.media-card-actions button {
+  display: inline-flex; align-items: center; gap: var(--space-2); min-height: 36px; padding: 6px 12px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: var(--fs-sm); font-weight: 600;
+}
+.media-card-actions button:hover { border-color: var(--accent); background: var(--accent-bg); }
+.media-card-actions .media-card-play { border-color: var(--accent); background: var(--accent); color: var(--accent-contrast); }
+.media-card-actions .media-card-play:hover { border-color: var(--accent-text); background: var(--accent-text); }
+.media-card-actions kbd { border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; font-family: var(--font-mono); opacity: 0.75; }
+.media-card-state { color: var(--text-dim); font-size: var(--fs-sm); }
+
+/* The player dock: one row under the columns, present only while something is loaded. */
+.app { grid-template-rows: 48px minmax(0, 1fr) auto; }
+.player-dock {
+  grid-row: 3; position: relative; z-index: 20;
+  display: flex; align-items: center; gap: var(--space-3);
+  min-height: var(--dock-h); padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-strong); background: var(--bg-subtle);
+}
+.app { --dock-h: 64px; }
+.player-now { flex: 1 1 12rem; min-width: 0; display: grid; }
+.player-title { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; font-weight: 600; text-align: left; }
+.player-title:hover { color: var(--accent-text); }
+.player-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: var(--fs-xs); }
+.player-controls { display: flex; align-items: center; gap: var(--space-1); flex: 0 0 auto; }
+.player-controls button {
+  display: inline-flex; align-items: center; gap: var(--space-1); min-width: 36px; min-height: 36px; padding: 4px 8px;
+  border-radius: var(--radius); color: var(--text-dim); font-size: var(--fs-sm);
+}
+.player-controls button:hover:not(:disabled) { color: var(--accent-text); background: var(--accent-bg); }
+.player-controls button:disabled { opacity: 0.35; cursor: default; }
+.player-audio { flex: 2 1 16rem; min-width: 0; height: 40px; }
+.player-video {
+  position: absolute; right: var(--space-4); bottom: calc(100% + var(--space-3)); width: min(360px, calc(100vw - 2rem));
+  border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; background: #000; box-shadow: var(--shadow);
+}
+.player-video.large { width: min(960px, calc(100vw - 2rem), calc((100vh - 220px) * 16 / 9)); }
+.player-video iframe, .player-video video { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
+.player-video.short { width: min(240px, calc(100vw - 2rem)); }
+.player-video.short.large { width: min(420px, calc(100vw - 2rem), calc((100vh - 220px) * 9 / 16)); }
+.player-video.short iframe, .player-video.short video { aspect-ratio: 9 / 16; }
+.player-video-size { display: block; width: 100%; padding: 4px; background: var(--bg-subtle); color: var(--text-dim); font-size: var(--fs-xs); }
+.player-video-size:hover { color: var(--accent-text); }
+.player-queue {
+  position: absolute; left: var(--space-4); bottom: calc(100% + var(--space-3)); width: min(420px, calc(100vw - 2rem));
+  max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg); box-shadow: var(--shadow);
+}
+.player-queue-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); background: var(--bg-subtle); }
+.player-queue-head h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
+.player-queue ol { list-style: none; margin: 0; padding: var(--space-1); }
+.player-queue li { display: flex; align-items: center; gap: 2px; border-radius: var(--radius); }
+.player-queue li:hover { background: var(--bg-hover); }
+.player-queue li.current { background: var(--accent-bg); font-weight: 600; }
+.player-queue li.played .player-queue-item { color: var(--text-dim); }
+.player-queue-item { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8px; text-align: left; }
+.player-queue li > button:last-child, .player-queue-head button { min-width: 32px; min-height: 32px; color: var(--text-dim); }
+/* Fixed helpers ride above the dock instead of covering it. */
+.app.has-dock .shortcut-hints, .app.has-dock .shortcut-popover, .app.has-dock .shortcut-notice { translate: 0 calc(-1 * var(--dock-h)); }
+@media (max-width: 1099px) {
+  .app.has-dock .sidebar { bottom: var(--dock-h); }
+}
+@media (max-width: 699px) {
+  .app { --dock-h: 108px; }
+  .player-dock { flex-wrap: wrap; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .player-now { flex-basis: 50%; }
+  .player-audio { flex: 1 1 100%; order: 5; }
+  .player-video, .player-queue { left: var(--space-2); right: var(--space-2); width: auto; }
+}
+
+/* Dynamic list rule editor. */
+.list-rule { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
+.list-rule legend { padding: 0 var(--space-1); color: var(--text-dim); font-size: var(--fs-sm); }
+.list-rule label { margin-top: var(--space-2); }
+.list-rule select, .list-rule input[type="number"], .feed-dialog input[type="text"], .feed-dialog input[type="search"] {
+  width: 100%; min-height: 40px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg); color: var(--text);
+}

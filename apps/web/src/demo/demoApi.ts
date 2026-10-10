@@ -4,10 +4,15 @@
 // OPML import) answers with a demo_readonly error the UI can explain.
 import rawSeed from "./seed.json";
 import { ApiError } from "../apiShared";
+import { youtubeVideo } from "../youtube";
 import type {
   Article,
   ArticleCursor,
   ArticlePage,
+  ArticleQueryParams,
+  FeedKind,
+  ListRule,
+  MediaFilter,
   CategoryCount,
   Feed,
   FeedRefreshResult,
@@ -43,7 +48,10 @@ interface DemoState {
   read: Record<string, string | null>;
   snoozed: Record<string, string>;
   lists: SavedList[];
+  /** A manual list's articles, in playing order. */
   listItems: Record<string, string[]>;
+  /** feedId → the visitor's category for it. Absent in overlays saved before categories existed. */
+  feedCategories?: Record<string, string>;
 }
 
 function loadState(): DemoState {
@@ -57,6 +65,7 @@ function loadState(): DemoState {
     snoozed: {},
     lists: seed.lists.map((l) => ({ ...l })),
     listItems: { [seed.lists[0]?.id ?? ""]: [...seed.listItems] },
+    feedCategories: {},
   };
 }
 
@@ -77,13 +86,55 @@ const listIdsFor = (articleId: string) =>
 const isVisible = (a: Article) =>
   !(a.snoozedUntil && Date.parse(a.snoozedUntil) > Date.now());
 
-function page(params: { feedId?: string; listId?: string; category?: string; before?: string; beforeId?: string; limit?: number }): ArticlePage {
+const isVideo = (a: Article) => Boolean(a.media?.type?.startsWith("video/")) || youtubeVideo(a.url) !== null;
+
+function matchesMedia(a: Article, media: MediaFilter): boolean {
+  if (media === "video") return isVideo(a);
+  if (media === "audio") return Boolean(a.media) && !isVideo(a);
+  return Boolean(a.media) || isVideo(a);
+}
+
+// The same derivation the server does in SQL: a feed is what it carries.
+const feedKinds = new Map<string, FeedKind>(seed.feeds.map((f) => {
+  const own = seed.articles.filter((a) => a.feedId === f.id);
+  const kind: FeedKind = f.url.startsWith("ingestor://") ? "social"
+    : f.url.startsWith("https://www.youtube.com/feeds/") || own.some((a) => a.media?.type?.startsWith("video/")) ? "video"
+    : own.some((a) => a.media) ? "podcast" : "article";
+  return [f.id, kind];
+}));
+
+const feedCategory = (feedId: string): string | null => state.feedCategories?.[feedId] ?? null;
+
+/** A dynamic list's rule, applied to already-visible articles. */
+function applyRule(items: Article[], rule: ListRule): Article[] {
+  const oldest = rule.maxAgeDays !== undefined ? Date.now() - rule.maxAgeDays * 86_400_000 : null;
+  const matched = items.filter((a) =>
+    (!rule.feedIds || rule.feedIds.includes(a.feedId))
+    && (!rule.feedCategory || feedCategory(a.feedId) === rule.feedCategory)
+    && (!rule.feedKind || feedKinds.get(a.feedId) === rule.feedKind)
+    && (!rule.category || Boolean(a.categories?.includes(rule.category)))
+    && (!rule.media || matchesMedia(a, rule.media))
+    && (!rule.unreadOnly || !a.readAt)
+    && (oldest === null || (a.publishedAt !== null && Date.parse(a.publishedAt) >= oldest)));
+  return rule.order === "oldest" ? matched.reverse() : matched;
+}
+
+function page(params: ArticleQueryParams): ArticlePage {
   let items = articles.filter(isVisible);
+  const list = params.listId ? state.lists.find((l) => l.id === params.listId) : undefined;
+  if (list?.rule) items = applyRule(items, list.rule);
+  else if (params.listId) {
+    // A manual list plays in its own order, not by date.
+    const order = state.listItems[params.listId] ?? [];
+    items = items.filter((a) => order.includes(a.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  }
   if (params.feedId) items = items.filter((a) => a.feedId === params.feedId);
-  if (params.listId) items = items.filter((a) => (state.listItems[params.listId!] ?? []).includes(a.id));
+  if (params.feedCategory) items = items.filter((a) => feedCategory(a.feedId) === params.feedCategory);
+  if (params.feedKind) items = items.filter((a) => feedKinds.get(a.feedId) === params.feedKind);
+  if (params.media) items = items.filter((a) => matchesMedia(a, params.media!));
   if (params.category) items = items.filter((a) => a.categories?.includes(params.category!));
-  // Seed is sorted newest-first; the cursor skips everything down to and
-  // including the (before, beforeId) article.
+  // Seed is sorted newest-first; whatever the order, the cursor skips
+  // everything down to and including the (before, beforeId) article.
   if (params.before && params.beforeId) {
     const idx = items.findIndex((a) => a.id === params.beforeId);
     if (idx >= 0) items = items.slice(idx + 1);
@@ -92,7 +143,7 @@ function page(params: { feedId?: string; listId?: string; category?: string; bef
   const slice = items.slice(0, limit);
   const last = slice[slice.length - 1];
   const nextCursor: ArticleCursor | null =
-    items.length > limit && last && last.publishedAt ? { before: last.publishedAt, beforeId: last.id } : null;
+    items.length > limit && last ? { before: last.publishedAt ?? last.id, beforeId: last.id } : null;
   return { articles: slice, nextCursor };
 }
 
@@ -106,7 +157,7 @@ function readOnly(): never {
 
 function feedById(id: string): Feed | null {
   const f = seed.feeds.find((x) => x.id === id) ?? null;
-  return f && { ...f, unreadCount: unreadCount(f.id), lastError: null, errorCount: 0 };
+  return f && { ...f, unreadCount: unreadCount(f.id), lastError: null, errorCount: 0, category: feedCategory(f.id), kind: feedKinds.get(f.id)! };
 }
 
 export const demoApi = {
@@ -119,6 +170,14 @@ export const demoApi = {
   importOpml: (_opml: string) => readOnly(),
   importYoutubeTakeout: (_csv: string) => readOnly(),
   unsubscribe: (_id: string) => readOnly(),
+  setFeedCategory: (id: string, category: string | null): Promise<Feed> => {
+    const categories = (state.feedCategories ??= {});
+    if (category) categories[id] = category;
+    else delete categories[id];
+    persist();
+    const feed = feedById(id);
+    return feed ? Promise.resolve(feed) : Promise.reject(new ApiError("feed not found", "not_found", 404));
+  },
   getTranscript: (id: string): Promise<Transcript> => {
     const transcript = seed.podcastExtras?.[id]?.transcript;
     return transcript ? Promise.resolve(transcript) : Promise.reject(new ApiError("this episode has no transcript", "not_found", 404));
@@ -129,7 +188,7 @@ export const demoApi = {
     const chapters = seed.podcastExtras?.[id]?.chapters;
     return chapters ? Promise.resolve(chapters) : Promise.reject(new ApiError("this episode has no chapters", "not_found", 404));
   },
-  listArticles: (params: Parameters<typeof page>[0] = {}) => Promise.resolve(page(params)),
+  listArticles: (params: ArticleQueryParams = {}) => Promise.resolve(page(params)),
   listCategories: (feedId?: string): Promise<CategoryCount[]> => {
     const counts = new Map<string, number>();
     for (const a of articles) {
@@ -163,8 +222,12 @@ export const demoApi = {
     return Promise.resolve();
   },
   listLists: (): Promise<SavedList[]> =>
-    Promise.resolve(state.lists.map((l) => ({ ...l, itemCount: (state.listItems[l.id] ?? []).length }))),
-  createList: (input: { title: string; visibility: "public" | "private" }): Promise<SavedList> => {
+    Promise.resolve(state.lists.map((l) => {
+      // Lists saved before rules existed have no `rule` key at all.
+      const rule = l.rule ?? null;
+      return { ...l, rule, itemCount: rule ? applyRule(articles.filter(isVisible), rule).length : (state.listItems[l.id] ?? []).length };
+    })),
+  createList: (input: { title: string; visibility: "public" | "private"; rule?: ListRule }): Promise<SavedList> => {
     const list: SavedList = {
       id: crypto.randomUUID(),
       title: input.title,
@@ -172,11 +235,26 @@ export const demoApi = {
       token: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       itemCount: 0,
+      rule: input.rule ?? null,
     };
     state.lists.push(list);
     state.listItems[list.id] = [];
     persist();
     return Promise.resolve(list);
+  },
+  updateList: (id: string, patch: { title?: string; rule?: ListRule }): Promise<SavedList> => {
+    const list = state.lists.find((l) => l.id === id);
+    if (!list) return Promise.reject(new ApiError("list not found", "not_found", 404));
+    if (patch.rule && !list.rule) return Promise.reject(new ApiError("this list holds saved articles; create a dynamic list instead", "list_manual", 409));
+    if (patch.title) list.title = patch.title;
+    if (patch.rule) list.rule = patch.rule;
+    persist();
+    return Promise.resolve(list);
+  },
+  setListItems: (listId: string, articleIds: string[]): Promise<void> => {
+    state.listItems[listId] = [...new Set(articleIds)].filter((id) => byId.has(id));
+    persist();
+    return Promise.resolve();
   },
   deleteList: (id: string): Promise<void> => {
     state.lists = state.lists.filter((l) => l.id !== id);
