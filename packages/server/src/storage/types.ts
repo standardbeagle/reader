@@ -2,6 +2,12 @@ import type { ArticleMedia, ParsedArticle } from "@reader/core";
 
 export interface User { id: string; email: string | null; createdAt: string; }
 
+/** Switches the user sets for themselves. */
+export interface Settings {
+  /** Allow calls to Libby's private sync API. Off until the user turns it on. */
+  libbySyncEnabled: boolean;
+}
+
 /** What a feed carries, derived from its address and its articles. */
 export type FeedKind = "article" | "podcast" | "video" | "social" | "library";
 export const FEED_KINDS: readonly FeedKind[] = ["article", "podcast", "video", "social", "library"];
@@ -225,6 +231,8 @@ export interface IngestorPatch {
 export interface Storage {
   close(): void | Promise<void>;
   getOrCreateLocalUser(): User;
+  getSettings(userId: string): Settings;
+  updateSettings(userId: string, patch: Partial<Settings>): Settings;
   createFeed(userId: string, input: { url: string; title: string; siteUrl: string | null; credentialId?: string | null; category?: string | null }): Feed;
   listFeeds(userId: string): Feed[];
   getFeed(id: string): Feed | null;
@@ -264,6 +272,7 @@ export interface Storage {
   getIngestor(id: string): Ingestor | null;
   updateIngestor(id: string, patch: IngestorPatch): Ingestor;
   deleteIngestor(id: string): void;
+  /** Ingestors whose poll is due. A Libby ingestor is never due while its user has Libby sync switched off. */
   dueIngestors(now: Date): Ingestor[];
   dueDigestFlushes(now: Date): Ingestor[];
   updateIngestorState(id: string, state: { lastFetchedAt?: string; lastDeliveredAt?: string; cursor?: Record<string, unknown>; errorCount: number; status: "ok" | "broken"; lastError?: string | null }): void;

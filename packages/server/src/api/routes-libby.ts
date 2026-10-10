@@ -3,7 +3,7 @@ import type { Ingestor, Storage } from "../storage/types.js";
 import type { IngestorEngine } from "../ingestors/engine.js";
 import { CredentialError } from "../auth/credentials.js";
 import { holdKey, libbySnapshot, type LibbySnapshot } from "../ingestors/libby.js";
-import { libbyCredential, libbyExpiresAt, libbyIngestor, libbyToken, linkLibby, unlinkLibby } from "../libby/account.js";
+import { libbyCredential, libbyExpiresAt, libbyIngestor, libbyToken, linkLibby, unlinkLibby, LibbySyncDisabled } from "../libby/account.js";
 import { LibbyError, borrowHold, cancelHold, placeHold, searchCatalog, suspendHold } from "../libby/client.js";
 
 const SETUP_CODE = /^\d{8}$/;
@@ -28,8 +28,9 @@ export function registerLibbyRoutes(app: FastifyInstance, storage: Storage, engi
 
   // The account as of the last sync. The sign-in token is never part of it.
   const libbyState = () => {
+    const { libbySyncEnabled: syncEnabled } = storage.getSettings(userId());
     const ingestor = libbyIngestor(storage, userId());
-    if (!ingestor) return { linked: false as const };
+    if (!ingestor) return { linked: false as const, syncEnabled };
     const credential = libbyCredential(storage, ingestor);
     const expiresAt = credential ? libbyExpiresAt(credential) : null;
     const snapshot = libbySnapshot(ingestor.cursor);
@@ -38,6 +39,7 @@ export function registerLibbyRoutes(app: FastifyInstance, storage: Storage, engi
       .sort((a, b) => Number(b.ready) - Number(a.ready) || (a.position ?? Infinity) - (b.position ?? Infinity) || a.title.localeCompare(b.title));
     return {
       linked: true as const,
+      syncEnabled,
       feedId: ingestor.feedId,
       cards: (snapshot?.cards ?? []).map(({ cardId, library, libraryKey }) => ({ cardId, library, libraryKey })),
       holds,
@@ -50,6 +52,7 @@ export function registerLibbyRoutes(app: FastifyInstance, storage: Storage, engi
   };
 
   const libbyFailure = (reply: FastifyReply, e: unknown) => {
+    if (e instanceof LibbySyncDisabled) return reply.code(403).send({ error: { code: "libby_sync_disabled", message: e.message } });
     if (e instanceof HoldRefused) return reply.code(e.status).send({ error: { code: e.code, message: e.message } });
     if (e instanceof CredentialError) return reply.code(409).send({ error: { code: "libby_relink", message: e.message } });
     if (e instanceof LibbyError) return reply.code(502).send({ error: { code: "libby_failed", message: e.message } });
@@ -108,6 +111,8 @@ export function registerLibbyRoutes(app: FastifyInstance, storage: Storage, engi
   app.post("/api/v1/libby/sync", async (_req, reply) => {
     const ingestor = libbyIngestor(storage, userId());
     if (!ingestor) return reply.code(404).send(NOT_LINKED);
+    // Refused here, not inside the sync: a switched-off account is paused, not failing.
+    if (!storage.getSettings(userId()).libbySyncEnabled) return libbyFailure(reply, new LibbySyncDisabled());
     return syncAndReport(ingestor, reply);
   });
 

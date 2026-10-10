@@ -9,6 +9,19 @@ const SYNC_INTERVAL_MIN = 30;
 /** Renew this long before the sign-in lapses (tokens last about a week). */
 const RENEW_BEFORE_MS = 3 * 86_400_000;
 
+/** Libby's private sync API is switched off in the user's settings. */
+export class LibbySyncDisabled extends Error {
+  constructor() {
+    super("Libby sync is switched off — turn it on in Settings first");
+    this.name = "LibbySyncDisabled";
+  }
+}
+
+/** Every call to Libby's sync service passes here first: linking, and each use of the token. */
+function requireLibbySync(storage: Storage, userId: string): void {
+  if (!storage.getSettings(userId).libbySyncEnabled) throw new LibbySyncDisabled();
+}
+
 function secretFor(token: string): CredentialSecret {
   // Libby has no refresh token. An oauth2 secret with none is the existing
   // shape for "works until expiresAt, then the user must sign in again".
@@ -38,6 +51,7 @@ export function libbyExpiresAt(credential: Credential): string | null {
  * queue snapshot survive a lapsed token.
  */
 export async function linkLibby(storage: Storage, userId: string, code: string): Promise<Ingestor> {
+  requireLibbySync(storage, userId);
   const token = await signInWithCode(code);
   // Sync before storing anything: a code that links to no library cards must not leave a dead account behind.
   const { cards } = await syncAccount(token);
@@ -70,14 +84,15 @@ export function unlinkLibby(storage: Storage, ingestor: Ingestor): void {
 
 /**
  * The sign-in token to send to Libby's sync service, renewed when it is close
- * to lapsing. Refuses to hand the token to any origin but the one it was
- * issued for.
+ * to lapsing. Refuses while Libby sync is switched off, and refuses to hand
+ * the token to any origin but the one it was issued for.
  */
 export async function libbyToken(storage: Storage, credentialId: string): Promise<string> {
   const credential = storage.getCredential(credentialId);
   if (!credential || credential.provider !== "libby" || credential.secret.kind !== "oauth2") {
     throw new CredentialError("the Libby sign-in no longer exists — link the account again");
   }
+  requireLibbySync(storage, credential.userId);
   if (credential.origin !== libbyOrigin()) {
     throw new CredentialError(`the Libby sign-in is for ${credential.origin}, not ${libbyOrigin()}`);
   }

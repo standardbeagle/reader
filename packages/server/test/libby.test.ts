@@ -3,6 +3,7 @@ import { createServer as createHttpServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "../src/api/server.js";
+import { createSqliteStorage } from "../src/storage/sqlite.js";
 import { diffHolds, type LibbySnapshot } from "../src/ingestors/libby.js";
 import type { LibbyHold, LibbySync } from "../src/libby/client.js";
 
@@ -182,6 +183,7 @@ describe("libby api", () => {
     process.env.READER_LIBBY_CATALOG_URL = fake.baseUrl;
     app = await createServer({ dbPath: ":memory:", poller: false, llm: null });
     await app.ready();
+    await setSync(true);
   });
   afterEach(async () => {
     await app.close();
@@ -190,6 +192,7 @@ describe("libby api", () => {
     delete process.env.READER_LIBBY_CATALOG_URL;
   });
 
+  const setSync = (libbySyncEnabled: boolean) => app.inject({ method: "PATCH", url: "/api/v1/settings", payload: { libbySyncEnabled } });
   const libby = (method: "GET" | "POST" | "DELETE", path = "", payload?: object) =>
     app.inject({ method, url: `/api/v1/libby${path}`, ...(payload ? { payload } : {}) });
   const link = (code = fake.code) => libby("POST", "/link", { code });
@@ -202,7 +205,7 @@ describe("libby api", () => {
 
   it("links an account from a setup code and turns its queue into a feed", async () => {
     fake.holds = [queued("t1"), queued("t2", { holdListPosition: 1, isAvailable: true, expireDate: "2026-11-06T00:00:00Z" })];
-    expect((await libby("GET")).json()).toEqual({ linked: false });
+    expect((await libby("GET")).json()).toEqual({ linked: false, syncEnabled: true });
 
     const linked = await link("1234 5678");
     expect(linked.statusCode).toBe(200);
@@ -228,13 +231,13 @@ describe("libby api", () => {
     const rejected = await link("00000000");
     expect(rejected.statusCode).toBe(422);
     expect(rejected.json().error.code).toBe("libby_code_rejected");
-    expect((await libby("GET")).json()).toEqual({ linked: false });
+    expect((await libby("GET")).json()).toEqual({ linked: false, syncEnabled: true });
     expect((await libby("POST", "/sync")).statusCode).toBe(404);
 
     // A code that signs in but carries no library card is not a usable account.
     fake.cards = [];
     expect((await link()).statusCode).toBe(502);
-    expect((await libby("GET")).json()).toEqual({ linked: false });
+    expect((await libby("GET")).json()).toEqual({ linked: false, syncEnabled: true });
   });
 
   it("places, suspends, resumes, cancels and borrows holds, re-syncing after each", async () => {
@@ -323,9 +326,55 @@ describe("libby api", () => {
   it("unlinks the account, its feed and its sign-in together", async () => {
     await link();
     expect((await libby("DELETE")).statusCode).toBe(204);
-    expect((await libby("GET")).json()).toEqual({ linked: false });
+    expect((await libby("GET")).json()).toEqual({ linked: false, syncEnabled: true });
     expect((await app.inject({ method: "GET", url: "/api/v1/feeds" })).json().feeds).toEqual([]);
     expect((await app.inject({ method: "GET", url: "/api/v1/credentials" })).json().credentials).toEqual([]);
     expect((await libby("DELETE")).statusCode).toBe(404);
+  });
+
+  it("calls Libby's sync service only while the setting allows it", async () => {
+    await setSync(false);
+    expect((await app.inject({ method: "GET", url: "/api/v1/settings" })).json()).toEqual({ libbySyncEnabled: false });
+    const refused = await link();
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.code).toBe("libby_sync_disabled");
+    expect(fake.requests).toEqual([]);
+
+    await setSync(true);
+    fake.holds = [queued("t1")];
+    expect((await link()).statusCode).toBe(200);
+
+    // Switched off again: the account stays linked and readable, and nothing reaches Libby.
+    await setSync(false);
+    const before = fake.requests.length;
+    expect((await libby("GET")).json()).toMatchObject({ linked: true, syncEnabled: false, lastError: null, holds: [{ titleId: "t1" }] });
+    for (const res of [await libby("POST", "/sync"), await libby("DELETE", "/holds/c1/t1"), await libby("POST", "/holds", { cardId: "c1", titleId: "t5" })]) {
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("libby_sync_disabled");
+    }
+    expect(fake.requests.length).toBe(before);
+    expect((await libby("GET")).json()).toMatchObject({ lastError: null });
+
+    await setSync(true);
+    expect((await libby("POST", "/sync")).statusCode).toBe(200);
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/settings", payload: { libbySyncEnabled: "yes" } })).statusCode).toBe(400);
+  });
+});
+
+describe("libby poll schedule", () => {
+  it("leaves a Libby ingestor out of the due list while sync is switched off", () => {
+    const storage = createSqliteStorage(":memory:");
+    try {
+      const userId = storage.getOrCreateLocalUser().id;
+      const feed = storage.createFeed(userId, { url: "ingestor://libby/holds", title: "Libby holds", siteUrl: null });
+      const ingestor = storage.createIngestor(userId, { kind: "libby", config: {}, feedId: feed.id });
+      const due = () => storage.dueIngestors(new Date()).map((i) => i.id);
+      expect(storage.getSettings(userId)).toEqual({ libbySyncEnabled: false });
+      expect(due()).toEqual([]);
+      storage.updateSettings(userId, { libbySyncEnabled: true });
+      expect(due()).toEqual([ingestor.id]);
+    } finally {
+      storage.close();
+    }
   });
 });

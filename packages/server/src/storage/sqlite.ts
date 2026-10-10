@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   Storage, User, Feed, Article, ArticleWithState, ArticleQuery, ArticlePage, FetchState,
-  NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount, ListRule,
+  NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount, ListRule, Settings,
   Credential, CredentialSecret,
 } from "./types.js";
 import { decodeHtmlEntities, looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
@@ -237,6 +237,19 @@ export function createSqliteStorage(path: string): Storage {
       const now = new Date().toISOString();
       db.prepare("INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, NULL, ?)").run(id, LOCAL_USER_EMAIL, now);
       return { id, email: LOCAL_USER_EMAIL, createdAt: now };
+    },
+
+    getSettings(userId): Settings {
+      const r = db.prepare("SELECT libby_sync_enabled FROM users WHERE id = ?").get(userId) as { libby_sync_enabled: number } | undefined;
+      if (!r) throw new Error("user not found: " + userId);
+      return { libbySyncEnabled: r.libby_sync_enabled === 1 };
+    },
+
+    updateSettings(userId, patch): Settings {
+      if (patch.libbySyncEnabled !== undefined) {
+        db.prepare("UPDATE users SET libby_sync_enabled = ? WHERE id = ?").run(patch.libbySyncEnabled ? 1 : 0, userId);
+      }
+      return this.getSettings(userId);
     },
 
     createFeed(userId, input): Feed {
@@ -672,10 +685,12 @@ export function createSqliteStorage(path: string): Storage {
 
     dueIngestors(now): Ingestor[] {
       const rows = db.prepare(`
-        SELECT * FROM ingestors
-        WHERE status = 'ok'
-          AND (last_fetched_at IS NULL
-               OR julianday(last_fetched_at) <= julianday(?) - fetch_interval_min / 1440.0)
+        SELECT i.* FROM ingestors i
+        JOIN users u ON u.id = i.user_id
+        WHERE i.status = 'ok'
+          AND (i.kind <> 'libby' OR u.libby_sync_enabled = 1)
+          AND (i.last_fetched_at IS NULL
+               OR julianday(i.last_fetched_at) <= julianday(?) - i.fetch_interval_min / 1440.0)
       `).all(now.toISOString()) as Record<string, unknown>[];
       return rows.map(rowToIngestor);
     },
