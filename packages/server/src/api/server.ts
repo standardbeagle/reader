@@ -6,6 +6,7 @@ import { registerIngestorRoutes } from "./routes-ingestors.js";
 import { registerListRoutes } from "./routes-lists.js";
 import { registerAuthRoutes } from "./routes-auth.js";
 import { registerArticleExtraRoutes } from "./routes-article-extras.js";
+import { registerMcpRoutes } from "./mcp.js";
 import { RealtimeHub } from "../realtime/hub.js";
 import { DEFAULT_PODPING_URL } from "../realtime/podping.js";
 import { DEFAULT_JETSTREAM_URL } from "../realtime/jetstream.js";
@@ -86,6 +87,7 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   registerListRoutes(app, storage);
   registerAuthRoutes(app, storage);
   registerArticleExtraRoutes(app, storage);
+  registerMcpRoutes(app);
   // READER_{PODPING,JETSTREAM,MASTODON_STREAMING}=off disable a stream;
   // READER_PODPING_URL / READER_JETSTREAM_URL point at other endpoints.
   const streamUrl = (name: string, override: string | null | undefined, fallback: string) =>

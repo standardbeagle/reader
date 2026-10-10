@@ -31,6 +31,24 @@ Access is the authorization control, not a convenience: reader has no authn of
 its own while M4 is open (see **Known blockers**). Do not remove the Access
 policy without closing that first.
 
+### MCP endpoint
+
+`POST /mcp` is a route on the reader listener above, not a listener of its own,
+so it has that listener's exposure and caps (1 MiB body, 30 s request timeout,
+256 connections) and adds none. It is stateless JSON-RPC: no session, no
+server-initiated stream (`GET /mcp` answers 405).
+
+Like the rest of the API it has no authn of its own while M4 is open: on
+loopback anything on the host can call it, and through `reader.sbdev.io` only
+what Cloudflare Access lets in (an MCP client there needs an Access service
+token). A request that carries an `Origin` header naming another host is
+refused with 403, so a web page cannot drive it from a browser.
+
+Every tool in `packages/server/src/api/mcp.ts` is one or more in-process calls
+to the REST routes (`app.inject`), so a tool can do nothing the HTTP API
+refuses. Register it in slop-mcp as an HTTP server at
+`http://127.0.0.1:3737/mcp`.
+
 ### Verifying the public route
 
 Cloudflare Access answers `302` at the edge for **any** request, whether or not
