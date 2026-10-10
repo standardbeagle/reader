@@ -23,6 +23,7 @@ describe("parseOpml", () => {
     ]);
     expect(outlines[0]!).toMatchObject({ title: "Blog A", htmlUrl: "https://a.example.com/" });
     expect(outlines[1]!).toMatchObject({ title: "Blog B", htmlUrl: null });
+    expect(outlines.map((o) => o.category)).toEqual(["Tech", "Tech", null]);
   });
 
   it("skips folder outlines and duplicate urls", async () => {

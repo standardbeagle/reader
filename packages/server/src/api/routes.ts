@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseOpml, parseYoutubeTakeout, type FeedOutline } from "@reader/core";
-import type { Storage } from "../storage/types.js";
+import { FEED_KINDS, MEDIA_FILTERS, type ArticleOrder, type Storage } from "../storage/types.js";
 import type { Poller } from "../poller/poller.js";
 import { discoverFeeds } from "../discovery/discover.js";
 
@@ -10,7 +10,19 @@ const IMPORT_CONCURRENCY = 4;
 interface SubscribeBody { url?: string; credentialId?: string }
 interface ReadBody { read?: boolean }
 interface SnoozeBody { until?: string | null }
-interface ArticleQuery { feed_id?: string; list_id?: string; unread?: string; category?: string; before?: string; before_id?: string; limit?: string; content?: string; snoozed?: string }
+interface ArticleQuery {
+  feed_id?: string; list_id?: string; feed_category?: string; feed_kind?: string; unread?: string; category?: string;
+  media?: string; order?: string; before?: string; before_id?: string; limit?: string; content?: string; snoozed?: string;
+}
+
+const MAX_FEED_CATEGORY = 60;
+const ARTICLE_ORDERS: readonly ArticleOrder[] = ["newest", "oldest"];
+
+/** The value if it is one of `allowed`, undefined if absent, null if it is anything else. */
+function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined | null {
+  if (!value) return undefined;
+  return (allowed as readonly string[]).includes(value) ? value as T : null;
+}
 
 export function registerRoutes(app: FastifyInstance, storage: Storage, poller: Poller): void {
   const userId = () => storage.getOrCreateLocalUser().id;
@@ -144,7 +156,10 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
         continue;
       }
       existing.add(outline.xmlUrl);
-      const feed = storage.createFeed(uid, { url: outline.xmlUrl, title: outline.title, siteUrl: outline.htmlUrl });
+      const feed = storage.createFeed(uid, {
+        url: outline.xmlUrl, title: outline.title, siteUrl: outline.htmlUrl,
+        category: outline.category?.slice(0, MAX_FEED_CATEGORY) || null,
+      });
       added.push(storage.getFeed(feed.id));
     }
     const queue = [...added];
@@ -220,24 +235,43 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     return reply.code(204).send();
   });
 
-  app.get<{ Querystring: ArticleQuery }>("/api/v1/articles", async (req) => {
+  // A feed's category is the user's own grouping; null or blank clears it.
+  app.patch<{ Params: { id: string }; Body: { category?: string | null } }>("/api/v1/feeds/:id", async (req, reply) => {
+    if (!storage.getFeed(req.params.id)) {
+      return reply.code(404).send({ error: { code: "not_found", message: "feed not found" } });
+    }
+    const raw = req.body?.category;
+    if (raw === undefined || (raw !== null && typeof raw !== "string") || (raw?.trim().length ?? 0) > MAX_FEED_CATEGORY) {
+      return reply.code(400).send({ error: { code: "invalid_category", message: `category must be a string of at most ${MAX_FEED_CATEGORY} characters, or null` } });
+    }
+    storage.setFeedCategory(req.params.id, raw?.trim() || null);
+    return storage.getFeed(req.params.id);
+  });
+
+  app.get<{ Querystring: ArticleQuery }>("/api/v1/articles", async (req, reply) => {
     const limit = Math.max(1, Math.min(Number(req.query.limit ?? 50) || 50, 200));
-    const articles = storage.listArticles({
+    const feedKind = oneOf(req.query.feed_kind, FEED_KINDS);
+    const media = oneOf(req.query.media, MEDIA_FILTERS);
+    const order = oneOf(req.query.order, ARTICLE_ORDERS);
+    if (feedKind === null || media === null || order === null) {
+      return reply.code(400).send({ error: { code: "invalid_filter", message: `feed_kind is one of ${FEED_KINDS.join(", ")}; media is one of ${MEDIA_FILTERS.join(", ")}; order is one of ${ARTICLE_ORDERS.join(", ")}` } });
+    }
+    return storage.listArticlePage({
       userId: userId(),
       ...(req.query.feed_id ? { feedId: req.query.feed_id } : {}),
       ...(req.query.list_id ? { listId: req.query.list_id } : {}),
+      ...(req.query.feed_category ? { feedCategory: req.query.feed_category } : {}),
+      ...(feedKind ? { feedKind } : {}),
       unreadOnly: req.query.unread === "1",
       includeSnoozed: req.query.snoozed === "1",
       ...(req.query.category ? { category: req.query.category } : {}),
+      ...(media ? { media } : {}),
+      ...(order ? { order } : {}),
       ...(req.query.before ? { before: req.query.before } : {}),
       ...(req.query.before_id ? { beforeId: req.query.before_id } : {}),
       limit,
       includeContent: req.query.content === "1",
     });
-    // Full page = assume more exist; cursor is the last row's keyset position.
-    const last = articles.length === limit ? articles[articles.length - 1] : undefined;
-    const nextCursor = last?.publishedAt ? { before: last.publishedAt, beforeId: last.id } : null;
-    return { articles, nextCursor };
   });
 
   app.get<{ Querystring: { feed_id?: string } }>("/api/v1/categories", async (req) => {

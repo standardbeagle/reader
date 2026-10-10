@@ -54,6 +54,7 @@ export function parseYoutubeTakeout(csv: string): FeedOutline[] {
       title: cells[2]?.trim() || id,
       xmlUrl: youtubeChannelFeedUrl(id),
       htmlUrl: `https://www.youtube.com/channel/${id}`,
+      category: null,
     });
   });
   return out;

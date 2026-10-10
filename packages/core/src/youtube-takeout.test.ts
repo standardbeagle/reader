@@ -8,8 +8,8 @@ describe("parseYoutubeTakeout", () => {
   it("maps each channel row to its RSS feed", () => {
     const csv = `Channel Id,Channel Url,Channel Title\r\n${A},http://www.youtube.com/channel/${A},Alpha\r\n${B},http://www.youtube.com/channel/${B},Beta\r\n\r\n`;
     expect(parseYoutubeTakeout(csv)).toEqual([
-      { title: "Alpha", xmlUrl: youtubeChannelFeedUrl(A), htmlUrl: `https://www.youtube.com/channel/${A}` },
-      { title: "Beta", xmlUrl: youtubeChannelFeedUrl(B), htmlUrl: `https://www.youtube.com/channel/${B}` },
+      { title: "Alpha", xmlUrl: youtubeChannelFeedUrl(A), htmlUrl: `https://www.youtube.com/channel/${A}`, category: null },
+      { title: "Beta", xmlUrl: youtubeChannelFeedUrl(B), htmlUrl: `https://www.youtube.com/channel/${B}`, category: null },
     ]);
     expect(youtubeChannelFeedUrl(A)).toBe(`https://www.youtube.com/feeds/videos.xml?channel_id=${A}`);
   });

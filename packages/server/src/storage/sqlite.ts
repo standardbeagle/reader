@@ -3,13 +3,33 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
-  Storage, User, Feed, Article, ArticleWithState, ArticleQuery, FetchState,
+  Storage, User, Feed, Article, ArticleWithState, ArticleQuery, ArticlePage, FetchState,
   NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount,
   Credential, CredentialSecret,
 } from "./types.js";
 import { decodeHtmlEntities, looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
 
 const LOCAL_USER_EMAIL = "local@reader";
+
+// A feed's kind, from its address and whether it carries playable media. The
+// inner alias is `ka` so this can sit inside queries that join articles as `a`;
+// the range test on media_type is a prefix match the media index can seek.
+const FEED_KIND_SQL = `CASE
+  WHEN f.url LIKE 'ingestor://%' THEN 'social'
+  WHEN f.url LIKE 'https://www.youtube.com/feeds/%'
+    OR EXISTS (SELECT 1 FROM articles ka WHERE ka.feed_id = f.id AND ka.media_url IS NOT NULL
+               AND ka.media_type >= 'video/' AND ka.media_type < 'video0') THEN 'video'
+  WHEN EXISTS (SELECT 1 FROM articles ka WHERE ka.feed_id = f.id AND ka.media_url IS NOT NULL) THEN 'podcast'
+  ELSE 'article' END`;
+const FEED_SELECT = `SELECT f.*, ${FEED_KIND_SQL} AS kind FROM feeds f`;
+
+// YouTube entries carry no enclosure; the link itself is the video.
+const YOUTUBE_ARTICLE_SQL = `(a.url LIKE 'https://www.youtube.com/watch%' OR a.url LIKE 'https://www.youtube.com/shorts/%' OR a.url LIKE 'https://youtu.be/%')`;
+const MEDIA_FILTER_SQL = {
+  any: `(a.media_url IS NOT NULL OR ${YOUTUBE_ARTICLE_SQL})`,
+  audio: `(a.media_url IS NOT NULL AND (a.media_type IS NULL OR a.media_type NOT LIKE 'video/%'))`,
+  video: `(a.media_type LIKE 'video/%' OR ${YOUTUBE_ARTICLE_SQL})`,
+} as const;
 
 function resolveHttpUrl(raw: string, baseUrl?: string): string | null {
   try {
@@ -86,6 +106,8 @@ export function createSqliteStorage(path: string): Storage {
       status: r.status as "ok" | "broken",
       credentialId: (r.credential_id as string) ?? null,
       retryAfter: (r.retry_after as string) ?? null,
+      category: (r.category as string) ?? null,
+      kind: r.kind as Feed["kind"],
       createdAt: r.created_at as string,
     };
   }
@@ -184,19 +206,23 @@ export function createSqliteStorage(path: string): Storage {
     createFeed(userId, input): Feed {
       const id = randomUUID();
       const now = new Date().toISOString();
-      db.prepare(`INSERT INTO feeds (id, user_id, url, title, site_url, credential_id, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, userId, input.url, input.title, input.siteUrl, input.credentialId ?? null, now);
+      db.prepare(`INSERT INTO feeds (id, user_id, url, title, site_url, credential_id, category, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, userId, input.url, input.title, input.siteUrl, input.credentialId ?? null, input.category ?? null, now);
       return this.getFeed(id)!;
     },
 
     listFeeds(userId): Feed[] {
-      const rows = db.prepare("SELECT * FROM feeds WHERE user_id = ? ORDER BY title").all(userId) as Record<string, unknown>[];
+      const rows = db.prepare(`${FEED_SELECT} WHERE f.user_id = ? ORDER BY f.title`).all(userId) as Record<string, unknown>[];
       return rows.map(rowToFeed);
     },
 
     getFeed(id): Feed | null {
-      const r = db.prepare("SELECT * FROM feeds WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+      const r = db.prepare(`${FEED_SELECT} WHERE f.id = ?`).get(id) as Record<string, unknown> | undefined;
       return r ? rowToFeed(r) : null;
+    },
+
+    setFeedCategory(id, category) {
+      db.prepare("UPDATE feeds SET category = ? WHERE id = ?").run(category, id);
     },
 
     deleteFeed(id) { db.prepare("DELETE FROM feeds WHERE id = ?").run(id); },
@@ -205,8 +231,8 @@ export function createSqliteStorage(path: string): Storage {
       // julianday handles ISO strings with 'T'/'Z'; string comparison against
       // datetime() output (space separator) would misorder.
       const rows = db.prepare(`
-        SELECT * FROM feeds
-        WHERE url NOT LIKE 'ingestor://%' AND (
+        ${FEED_SELECT}
+        WHERE f.url NOT LIKE 'ingestor://%' AND (
           (
             status = 'ok'
             AND (last_fetched_at IS NULL
@@ -330,10 +356,21 @@ export function createSqliteStorage(path: string): Storage {
     },
 
     listArticles(q: ArticleQuery): ArticleWithState[] {
+      return this.listArticlePage(q).articles;
+    },
+
+    listArticlePage(q: ArticleQuery): ArticlePage {
       const includeContent = q.includeContent !== false;
+      const order = q.order ?? "newest";
       const clauses = ["f.user_id = ?"];
       const params: unknown[] = [q.userId];
       if (q.feedId) { clauses.push("a.feed_id = ?"); params.push(q.feedId); }
+      if (q.feedIds) {
+        clauses.push(`a.feed_id IN (${q.feedIds.map(() => "?").join(", ")})`);
+        params.push(...q.feedIds);
+      }
+      if (q.feedCategory) { clauses.push("f.category = ?"); params.push(q.feedCategory); }
+      if (q.feedKind) { clauses.push(`${FEED_KIND_SQL} = ?`); params.push(q.feedKind); }
       if (q.listId) { clauses.push("li.list_id = ?"); params.push(q.listId); }
       if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
       if (!q.includeSnoozed) {
@@ -344,25 +381,31 @@ export function createSqliteStorage(path: string): Storage {
         clauses.push("EXISTS (SELECT 1 FROM json_each(a.categories) je WHERE je.value = ?)");
         params.push(q.category);
       }
+      if (q.media) clauses.push(MEDIA_FILTER_SQL[q.media]);
+      if (q.maxAgeDays !== undefined) {
+        clauses.push("a.published_at >= ?");
+        params.push(new Date(Date.now() - q.maxAgeDays * 86_400_000).toISOString());
+      }
       // Keyset cursor over (published_at, id): the id half keeps articles that
       // share the boundary timestamp from being skipped between pages. The id
       // comparison follows the ORDER BY tiebreak (ascending within a
       // timestamp), so continuation means id > cursor id.
+      const past = order === "oldest" ? ">" : "<";
       if (q.before) {
         if (q.beforeId) {
-          clauses.push("(a.published_at < ? OR (a.published_at = ? AND a.id > ?))");
+          clauses.push(`(a.published_at ${past} ? OR (a.published_at = ? AND a.id > ?))`);
           params.push(q.before, q.before, q.beforeId);
         } else {
-          clauses.push("a.published_at < ?");
+          clauses.push(`a.published_at ${past} ?`);
           params.push(q.before);
         }
       }
       params.push(q.limit);
       const articleColumns = includeContent
-        ? "a.*"
+        ? "a.*, f.site_url AS feed_site_url, f.url AS feed_url"
         : `a.id, a.feed_id, a.guid, a.url, a.title, a.author, a.published_at,
-           NULL AS content_html, NULL AS summary, a.image_url, a.media_url, a.media_type, a.fetched_at`;
-      // Ordering must stay aligned with the keyset cursor below:
+           NULL AS content_html, NULL AS summary, a.image_url, a.categories, a.media_url, a.media_type, a.fetched_at`;
+      // Ordering must stay aligned with the keyset cursor above:
       // (published_at, id) both directions included, so no page boundary can
       // skip or repeat a row. fetched_at is deliberately not a tiebreak — it
       // changes on refresh and would corrupt the cursor position.
@@ -373,14 +416,17 @@ export function createSqliteStorage(path: string): Storage {
         ${q.listId ? "JOIN list_items li ON li.article_id = a.id" : ""}
         LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
         WHERE ${clauses.join(" AND ")}
-        ORDER BY a.published_at IS NULL, a.published_at DESC, a.id
+        ORDER BY a.published_at IS NULL, a.published_at ${order === "oldest" ? "ASC" : "DESC"}, a.id
         LIMIT ?
       `).all(q.userId, ...params) as Record<string, unknown>[];
-      return rows.map((r) => ({
+      const articles = rows.map((r) => ({
         ...rowToArticle(r, includeContent),
         readAt: (r.read_at as string) ?? null,
         snoozedUntil: (r.snoozed_until as string) ?? null,
       }));
+      // Full page = assume more exist; the cursor is the last row's keyset position.
+      const last = articles.length === q.limit ? articles[articles.length - 1] : undefined;
+      return { articles, nextCursor: last?.publishedAt ? { before: last.publishedAt, beforeId: last.id } : null };
     },
 
     listCategories(userId, feedId): CategoryCount[] {

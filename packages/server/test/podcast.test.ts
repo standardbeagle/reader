@@ -87,6 +87,8 @@ describe("migration 0011", () => {
       const raw = new Database(path);
       raw.prepare("UPDATE articles SET media_url = NULL").run();
       raw.prepare("DELETE FROM schema_migrations WHERE name = ?").run("0011_article_media.sql");
+      // A later migration indexes media_url; SQLite refuses to drop an indexed column.
+      raw.exec("DROP INDEX idx_articles_feed_media");
       raw.exec("ALTER TABLE articles DROP COLUMN media_url; ALTER TABLE articles DROP COLUMN media_type; ALTER TABLE articles DROP COLUMN transcript_url; ALTER TABLE articles DROP COLUMN transcript_type; ALTER TABLE articles DROP COLUMN chapters_url;");
       raw.close();
       const reopened = createSqliteStorage(path);

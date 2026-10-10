@@ -2,6 +2,16 @@ import type { ArticleMedia, ParsedArticle } from "@reader/core";
 
 export interface User { id: string; email: string | null; createdAt: string; }
 
+/** What a feed carries, derived from its address and its articles. */
+export type FeedKind = "article" | "podcast" | "video" | "social";
+export const FEED_KINDS: readonly FeedKind[] = ["article", "podcast", "video", "social"];
+
+/** Playable articles only: any media, or just audio or just video. */
+export type MediaFilter = "any" | "audio" | "video";
+export const MEDIA_FILTERS: readonly MediaFilter[] = ["any", "audio", "video"];
+
+export type ArticleOrder = "newest" | "oldest";
+
 export interface Feed {
   id: string;
   userId: string;
@@ -19,6 +29,9 @@ export interface Feed {
   credentialId: string | null;
   /** The publisher's Retry-After: scheduled polls wait until then. */
   retryAfter: string | null;
+  /** The user's own grouping; null when uncategorized. */
+  category: string | null;
+  kind: FeedKind;
   createdAt: string;
 }
 
@@ -85,17 +98,36 @@ export interface ArticleQuery {
   feedId?: string;
   /** Restrict to articles saved in this list. */
   listId?: string;
+  /** Restrict to these feeds. */
+  feedIds?: string[];
+  /** Restrict to feeds the user filed under this category. */
+  feedCategory?: string;
+  feedKind?: FeedKind;
   unreadOnly?: boolean;
   category?: string;
-  before?: string; // ISO date cursor on published_at
-  /** Second half of the (published_at, id) keyset cursor; prevents skipping
-   *  articles that share the boundary timestamp. */
+  media?: MediaFilter;
+  /** Only articles published within this many days. */
+  maxAgeDays?: number;
+  /** Defaults to newest. */
+  order?: ArticleOrder;
+  /** Keyset cursor: the last row's published_at. */
+  before?: string;
+  /** Second half of the keyset cursor; prevents skipping articles that share
+   *  the boundary value. */
   beforeId?: string;
   limit: number;
   /** Keep list responses light unless a caller explicitly needs article content. */
   includeContent?: boolean;
   /** Include actively snoozed articles instead of hiding them. */
   includeSnoozed?: boolean;
+}
+
+export interface ArticleCursor { before: string; beforeId: string }
+
+export interface ArticlePage {
+  articles: ArticleWithState[];
+  /** Null on the last page. */
+  nextCursor: ArticleCursor | null;
 }
 
 export type ListVisibility = "public" | "private";
@@ -175,9 +207,10 @@ export interface IngestorPatch {
 export interface Storage {
   close(): void | Promise<void>;
   getOrCreateLocalUser(): User;
-  createFeed(userId: string, input: { url: string; title: string; siteUrl: string | null; credentialId?: string | null }): Feed;
+  createFeed(userId: string, input: { url: string; title: string; siteUrl: string | null; credentialId?: string | null; category?: string | null }): Feed;
   listFeeds(userId: string): Feed[];
   getFeed(id: string): Feed | null;
+  setFeedCategory(id: string, category: string | null): void;
   deleteFeed(id: string): void;
   dueFeeds(now: Date): Feed[];
   /** Feeds with at least one playable episode — the ones Podping can announce. */
@@ -185,6 +218,8 @@ export interface Storage {
   updateFeedFetchState(id: string, state: FetchState): void;
   upsertArticles(feedId: string, articles: ParsedArticle[], sanitize: (html: string, baseUrl?: string) => string, baseUrl?: string): Article[];
   listArticles(q: ArticleQuery): ArticleWithState[];
+  /** One page of articles plus the cursor that continues it. */
+  listArticlePage(q: ArticleQuery): ArticlePage;
   listCategories(userId: string, feedId?: string): CategoryCount[];
   getArticle(userId: string, articleId: string): ArticleWithState | null;
   setRead(userId: string, articleId: string, read: boolean): void;
