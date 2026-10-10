@@ -5,6 +5,15 @@
 - Status: **non-secret paths fully verified live; two items pending the operator's Libby setup code (question door)**
 - Author apparatus: throwaway probes under `scripts/spikes/libby/` (`lib.mjs`, `chip-info.mjs`, `availability.mjs`, `probe.mjs`). Never imported by `packages/server`. All secrets read from environment variables only; all captured output is redacted by `lib.mjs redact()` (masks `identity`, `barcode`, `username`, `pin`, `email`, `code`, `token`, any ≥18-char id, any bare JWT).
 
+## Outcome (2026-10-10)
+
+Built as `packages/server/src/libby/` and the `libby` ingestor. What changed against this spike:
+
+- **TLS verification is on.** The mismatch below is real, but connecting with `servername` set to `sentry-read.odrsre.overdrive.com` (a name the certificate covers; the approach booklife-mcp uses) verifies chain and hostname. Checked against the live host. The "security regression" in the integration notes does not apply.
+- **Path 1 is the polling backbone, not just the seed.** The sign-in is renewed by re-asking for the device chip, which is how the Libby app keeps a device signed in. This has not been run against a live account; if it does not work, the token dies at seven days and the account reports `needsRelink`.
+- **ToS acceptance** is asked where the account is linked (the Library holds dialog), not recorded here. Nothing calls the private API until a setup code is entered.
+- **Still unverified against a live account:** the `holds[]` field names, the hold-action payloads, and chip renewal. They follow booklife-mcp and libby-calibre-plugin, are read as optional, and are exercised only against a fake service in `packages/server/test/libby.test.ts`.
+
 ## Question this answers
 
 Reader wants to surface a patron's Libby **hold queue** — for each held title: position in the queue, estimated wait, whether it is now available (ready for loan), and the owning card. Two candidate data paths plus any third option were probed against the real OverDrive/Libby services to decide which one reader builds on.

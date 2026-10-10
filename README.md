@@ -18,13 +18,17 @@ RSS was always pull-based updates from publishers. Agents are exactly the kind o
 - **Feed reading** — RSS, Atom, JSON Feed and IndieWeb h-feed pages; conditional GET, adaptive refresh intervals that honor the publisher's `ttl`, `Cache-Control` and `Retry-After`, exponential backoff on failures, and history backfill for feeds that page it (RFC 5005, JSON Feed `next_url`)
 - **Private feeds** — username/password, access token, or OAuth 2.0 (PKCE) sign-in, each bound to the feed's own host
 - **Imports** — OPML from any other reader, or YouTube subscriptions from a Google Takeout export
-- **Podcasts** — in-reader player with Podcasting 2.0 chapters and transcripts; new episodes arrive as soon as Podping announces them
+- **Podcasts** — Podcasting 2.0 chapters and transcripts; new episodes arrive as soon as Podping announces them
+- **Play queue** — audio, video and YouTube play in a dock that survives navigation; queue single articles or a whole stream, and the next item starts when one ends
+- **Categories and types** — file feeds under your own categories, group the sidebar by category or by type, and open either as a stream
 - **Classic three-pane UI** — feeds · article list · article view, with a mobile layout, swipe navigation, and installable PWA support
 - **Pinboard view** — image-led card grid for the article list
 - **Unread-only navigation** — edge dots mark unread neighbors; a header toggle restricts prev/next (buttons, swipe, j/k) to unread articles
 - **Read state** — mark read on click, mark-all-read, per-feed unread counts
 - **Snooze** — hide an article until later (later today / tomorrow / next week); it stays unread and resurfaces when the snooze expires
-- **Saved lists** — permanent collections of articles, public or private; every public list is itself an RSS feed at `/lists/<token>.xml`
+- **Lists as playlists** — ordered collections of saved articles, or dynamic lists filled by a rule (media, feed type, category, unread, age); public or private, and every public list is itself an RSS feed at `/lists/<token>.xml`
+- **MCP endpoint** — `/mcp` lets an MCP client read feeds and streams and curate lists
+- **Libby holds** — link a Libby account for a feed of hold notices, and place, suspend, cancel and borrow holds from reader
 - **Ingestors** — Mastodon (hashtags or your home timeline), Bluesky, and Reddit as feeds, or several feeds merged into one AI-filtered, summarized view; digest modes and LLM keep/drop threshold
 - **Connected accounts** — Mastodon and Reddit sign in through OAuth; no passwords stored
 - **Real-time** — Mastodon streaming and Bluesky Jetstream deliver posts as they are published, over outbound connections only
@@ -43,7 +47,7 @@ RSS was always pull-based updates from publishers. Agents are exactly the kind o
 | M4 | 🔶 partial | OPML import shipped, hosted deployment live; multi-user (auth, Postgres) planned |
 | M5 | planned | Google Reader API compat, offline web (service worker) |
 
-Shipped since the roadmap was written: snooze, saved lists with public RSS feeds, ingestors (Mastodon / Bluesky / Reddit / combined AI view), OPML and YouTube imports, pinboard view, unread-only navigation, the hosted deployment behind Cloudflare Access, JSON Feed and h-feed, private-feed sign-in and OAuth connected accounts, podcasts with chapters and transcripts, history backfill, and real-time delivery (Podping, Mastodon streaming, Bluesky Jetstream).
+Shipped since the roadmap was written: snooze, saved lists with public RSS feeds, ingestors (Mastodon / Bluesky / Reddit / combined AI view), OPML and YouTube imports, pinboard view, unread-only navigation, the hosted deployment behind Cloudflare Access, JSON Feed and h-feed, private-feed sign-in and OAuth connected accounts, podcasts with chapters and transcripts, history backfill, real-time delivery (Podping, Mastodon streaming, Bluesky Jetstream), the play queue, feed categories (the M2 "folders"), playlists, the MCP endpoint, and Libby holds.
 
 Future direction: **agents as publishers** — an agent that can write an Atom file to a URL is already subscribable; a future milestone makes that first-class (watched directory / publish endpoint).
 

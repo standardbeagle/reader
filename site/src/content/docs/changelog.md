@@ -5,8 +5,26 @@ description: Notable changes to reader, newest first.
 
 ## Unreleased
 
-- **YouTube videos play** in the reader through YouTube's privacy-enhanced
-  embed player, and the Embedded page tab becomes a **Video** tab for them.
+- **Play queue** — audio and video play in a dock under the columns and keep
+  playing while you move between feeds and articles. Queue an article with
+  `q`, play it now with `p`, or press ▶ on the article list to queue
+  everything playable in the stream on show. The queue and your place in it
+  survive a reload.
+- **Feed categories and types** — file feeds under your own categories (OPML
+  imports keep their folders) and group the sidebar by category or by type.
+  A category or type opens as a stream of its own.
+- **Lists are playlists** — a list keeps the order you saved in, and a list
+  can be **dynamic**: a rule such as "unplayed audio from the last 30 days"
+  that fills itself. **Behavior change:** a list now reads in saved order,
+  not by publish date.
+- **MCP endpoint** at `/mcp` — an MCP client can read feeds and streams and
+  curate lists.
+- **Libby holds** — link a Libby account to get a feed of hold notices (placed,
+  moving up, ready, suspended, borrowed, cancelled) and place, suspend, cancel
+  and borrow holds from the sidebar.
+- **YouTube videos play** in the dock through YouTube's privacy-enhanced
+  embed player. The article shows a poster with Play and Queue; the earlier
+  in-article player and its **Video** tab are gone.
 - **Embedded page knows when it can't work** — pages that refuse framing
   (`X-Frame-Options`, CSP `frame-ancestors`) get a disabled tab with the
   reason on hover instead of a blank frame.
