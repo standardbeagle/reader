@@ -3,8 +3,8 @@ import type { ArticleMedia, ParsedArticle } from "@reader/core";
 export interface User { id: string; email: string | null; createdAt: string; }
 
 /** What a feed carries, derived from its address and its articles. */
-export type FeedKind = "article" | "podcast" | "video" | "social";
-export const FEED_KINDS: readonly FeedKind[] = ["article", "podcast", "video", "social"];
+export type FeedKind = "article" | "podcast" | "video" | "social" | "library";
+export const FEED_KINDS: readonly FeedKind[] = ["article", "podcast", "video", "social", "library"];
 
 /** Playable articles only: any media, or just audio or just video. */
 export type MediaFilter = "any" | "audio" | "video";
@@ -36,7 +36,7 @@ export interface Feed {
   createdAt: string;
 }
 
-export type CredentialProvider = "generic" | "mastodon" | "reddit";
+export type CredentialProvider = "generic" | "mastodon" | "reddit" | "libby";
 
 export type CredentialSecret =
   | { kind: "basic"; username: string; password: string }
@@ -190,7 +190,7 @@ export interface NormalizedItem {
   publishedAt: string | null;
 }
 
-export type IngestorKind = "mastodon" | "bluesky" | "reddit" | "composite";
+export type IngestorKind = "mastodon" | "bluesky" | "reddit" | "composite" | "libby";
 export type DigestMode = "realtime" | "hourly" | "daily";
 
 export interface Ingestor {
@@ -205,6 +205,8 @@ export interface Ingestor {
   llmEnabled: boolean;
   status: "ok" | "broken";
   errorCount: number;
+  /** Why the last fetch or delivery failed; null after one that worked. */
+  lastError: string | null;
   lastFetchedAt: string | null;
   lastDeliveredAt: string | null;
   cursor: Record<string, unknown> | null;
@@ -264,7 +266,7 @@ export interface Storage {
   deleteIngestor(id: string): void;
   dueIngestors(now: Date): Ingestor[];
   dueDigestFlushes(now: Date): Ingestor[];
-  updateIngestorState(id: string, state: { lastFetchedAt?: string; lastDeliveredAt?: string; cursor?: Record<string, unknown>; errorCount: number; status: "ok" | "broken" }): void;
+  updateIngestorState(id: string, state: { lastFetchedAt?: string; lastDeliveredAt?: string; cursor?: Record<string, unknown>; errorCount: number; status: "ok" | "broken"; lastError?: string | null }): void;
   stageItems(ingestorId: string, items: NormalizedItem[]): NormalizedItem[];
   pendingItems(ingestorId: string): NormalizedItem[];
   markDelivered(ingestorId: string, externalIds: string[]): void;

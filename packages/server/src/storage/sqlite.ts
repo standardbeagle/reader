@@ -15,6 +15,7 @@ const LOCAL_USER_EMAIL = "local@reader";
 // inner alias is `ka` so this can sit inside queries that join articles as `a`;
 // the range test on media_type is a prefix match the media index can seek.
 const FEED_KIND_SQL = `CASE
+  WHEN f.url LIKE 'ingestor://libby/%' THEN 'library'
   WHEN f.url LIKE 'ingestor://%' THEN 'social'
   WHEN f.url LIKE 'https://www.youtube.com/feeds/%'
     OR EXISTS (SELECT 1 FROM articles ka WHERE ka.feed_id = f.id AND ka.media_url IS NOT NULL
@@ -218,6 +219,7 @@ export function createSqliteStorage(path: string): Storage {
       llmEnabled: (r.llm_enabled as number) === 1,
       status: r.status as "ok" | "broken",
       errorCount: r.error_count as number,
+      lastError: (r.last_error as string) ?? null,
       lastFetchedAt: (r.last_fetched_at as string) ?? null,
       lastDeliveredAt: (r.last_delivered_at as string) ?? null,
       cursor: r.cursor ? JSON.parse(r.cursor as string) as Record<string, unknown> : null,
@@ -696,12 +698,14 @@ export function createSqliteStorage(path: string): Storage {
           last_delivered_at = COALESCE(?, last_delivered_at),
           cursor = COALESCE(?, cursor),
           error_count = ?,
-          status = ?
+          status = ?,
+          last_error = CASE WHEN ? THEN ? ELSE last_error END
         WHERE id = ?
       `).run(
         state.lastFetchedAt ?? null, state.lastDeliveredAt ?? null,
         state.cursor === undefined ? null : JSON.stringify(state.cursor),
-        state.errorCount, state.status, id,
+        state.errorCount, state.status,
+        state.lastError === undefined ? 0 : 1, state.lastError ?? null, id,
       );
     },
 

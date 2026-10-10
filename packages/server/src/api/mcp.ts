@@ -211,6 +211,22 @@ const TOOLS: Tool[] = [
     inputSchema: { type: "object", properties: { listId: { type: "string" }, articleIds: { type: "array", items: { type: "string" }, maxItems: MAX_TOOL_ITEMS } }, required: ["listId", "articleIds"] },
     calls: (args) => ids(args, "articleIds").map((articleId) => ({ method: "DELETE" as const, url: `/api/v1/lists/${seg(text(args, "listId"))}/items/${seg(articleId)}` })),
   },
+  {
+    name: "libby_holds_list",
+    description: "The user's Libby (library) hold queue as of the last sync: each hold's title, queue position, estimated wait, whether it is ready to borrow, and the library card it is on. Read-only: holds are placed, suspended, cancelled and borrowed by the user in Reader, not through this server.",
+    inputSchema: { type: "object", properties: {} },
+    calls: () => [{ method: "GET", url: "/api/v1/libby" }],
+  },
+  {
+    name: "libby_search",
+    description: "Search the catalog of one of the user's libraries for titles, with availability and queue length. Omit cardId to search the first library.",
+    inputSchema: { type: "object", properties: { query: { type: "string" }, cardId: { type: "string" } }, required: ["query"] },
+    calls: (args) => {
+      const q = new URLSearchParams({ q: text(args, "query") });
+      if (args.cardId !== undefined) q.set("card_id", text(args, "cardId"));
+      return [{ method: "GET", url: `/api/v1/libby/search?${q}` }];
+    },
+  },
 ];
 
 interface RpcMessage { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown }

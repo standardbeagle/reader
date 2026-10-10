@@ -85,16 +85,18 @@ export class IngestorEngine {
         }
       }
       this.storage.updateIngestorState(ing.id, {
-        lastFetchedAt: new Date().toISOString(), cursor, errorCount: 0, status: "ok",
+        lastFetchedAt: new Date().toISOString(), cursor, errorCount: 0, status: "ok", lastError: null,
       });
       return { fetched: items.length, kept, dropped };
     } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
       this.storage.updateIngestorState(ing.id, {
         lastFetchedAt: new Date().toISOString(),
         errorCount: ing.errorCount + 1,
         status: ing.errorCount + 1 >= 10 ? "broken" : "ok",
+        lastError: error,
       });
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error };
     }
   }
 
@@ -109,14 +111,16 @@ export class IngestorEngine {
     if (pending.length === 0) return { kept: 0, dropped: 0 };
     try {
       const result = await this.runPipeline(ing, pending, "delivery");
-      this.storage.updateIngestorState(ing.id, { lastDeliveredAt: new Date().toISOString(), errorCount: 0, status: "ok" });
+      this.storage.updateIngestorState(ing.id, { lastDeliveredAt: new Date().toISOString(), errorCount: 0, status: "ok", lastError: null });
       return { kept: result.kept.length, dropped: result.dropped.length };
     } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
       this.storage.updateIngestorState(ing.id, {
         errorCount: ing.errorCount + 1,
         status: ing.errorCount + 1 >= 10 ? "broken" : "ok",
+        lastError: error,
       });
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error };
     }
   }
 

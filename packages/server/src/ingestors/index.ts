@@ -4,11 +4,13 @@ import { mastodonAdapter } from "./mastodon.js";
 import { blueskyAdapter } from "./bluesky.js";
 import { redditAdapter } from "./reddit.js";
 import { compositeAdapter } from "./composite.js";
+import { libbyAdapter } from "./libby.js";
 
 export const adapters: Record<IngestorKind, IngestorAdapter> = {
   mastodon: mastodonAdapter,
   bluesky: blueskyAdapter,
   reddit: redditAdapter,
   composite: compositeAdapter,
+  libby: libbyAdapter,
 };
 export type { IngestorAdapter } from "./types.js";
