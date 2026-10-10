@@ -10,6 +10,8 @@ description: Notable changes to reader, newest first.
   `q`, play it now with `p`, or press ▶ on the article list to queue
   everything playable in the stream on show. The queue and your place in it
   survive a reload.
+- **Player settings are remembered** — playback speed, volume, mute and the
+  video size carry over to the next item and the next visit, in this browser.
 - **Feed categories and types** — file feeds under your own categories (OPML
   imports keep their folders) and group the sidebar by category or by type.
   A category or type opens as a stream of its own.

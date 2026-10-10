@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import {
   afterPlayed, currentItem, jumpTo, playRequestCount, registerSeek, removeAt, savePosition, step, updateQueue, usePlayQueue,
   EMPTY_QUEUE, type QueueItem,
 } from "./playQueue";
+import { playerPrefs, savePlayerPrefs } from "./playerPrefs";
 import { safeUrl } from "./urls";
 import { youtubeVideo } from "./youtube";
 
@@ -40,7 +41,7 @@ export function PlayerDock(props: {
   const requests = playRequestCount();
   const item = currentItem(queue);
   const [queueOpen, setQueueOpen] = useState(false);
-  const [large, setLarge] = useState(false);
+  const [large, setLarge] = useState(() => playerPrefs().largeVideo);
   const media = useRef<HTMLMediaElement | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const { onPlayed, onPlaylistProgress } = props;
@@ -58,6 +59,13 @@ export function PlayerDock(props: {
     onPlayed(item);
     updateQueue(afterPlayed);
   };
+  const rememberRate = (event: SyntheticEvent<HTMLMediaElement>) => {
+    const el = event.currentTarget;
+    el.defaultPlaybackRate = el.playbackRate;
+    savePlayerPrefs({ rate: el.playbackRate });
+  };
+  const rememberVolume = (event: SyntheticEvent<HTMLMediaElement>) =>
+    savePlayerPrefs({ volume: event.currentTarget.volume, muted: event.currentTarget.muted });
   // Handlers below are bound once per item; they must see the latest closure.
   const onFinished = useRef(finished);
   onFinished.current = finished;
@@ -68,6 +76,12 @@ export function PlayerDock(props: {
   useEffect(() => {
     const el = media.current;
     if (!el || !src) return;
+    const { rate, volume, muted } = playerPrefs();
+    // Loading a new source resets the speed to the default one, so both are set.
+    el.defaultPlaybackRate = rate;
+    el.playbackRate = rate;
+    el.volume = volume;
+    el.muted = muted;
     const start = () => { if (queue.position > 0) el.currentTime = queue.position; };
     if (el.readyState >= 1) start();
     else el.addEventListener("loadedmetadata", start, { once: true });
@@ -92,12 +106,36 @@ export function PlayerDock(props: {
   // someone is listening; that is the only way to learn a video has ended.
   useEffect(() => {
     if (!video) return;
+    // The embed starts every video at its own defaults. Ours are sent once it
+    // answers, and what it reports is trusted only after it has reported ours
+    // back: until then its numbers are its defaults, not the reader's choice.
+    const prefsState = { sent: false, confirmed: false };
+    const reported: { rate?: number; volume?: number; muted?: boolean } = {};
+    const command = (func: string, args: unknown[] = []) =>
+      frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), YOUTUBE_ORIGIN);
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== YOUTUBE_ORIGIN || event.source !== frame.current?.contentWindow || typeof event.data !== "string") return;
       let message: { event?: string; info?: unknown };
       try { message = JSON.parse(event.data) as typeof message; } catch { return; }
-      const info = message.info as { playerState?: number; currentTime?: number } | number | null | undefined;
+      if (!prefsState.sent) {
+        // Its first message means the player is up and taking commands.
+        prefsState.sent = true;
+        const { rate, volume, muted } = playerPrefs();
+        command("setVolume", [Math.round(volume * 100)]);
+        command(muted ? "mute" : "unMute");
+        command("setPlaybackRate", [rate]);
+      }
+      const info = message.info as { playerState?: number; currentTime?: number; playbackRate?: number; volume?: number; muted?: boolean } | number | null | undefined;
       const state = typeof info === "number" ? info : info?.playerState;
+      if (typeof info === "object" && info) {
+        // Reports after the first are deltas, so the player's settings are pieced together.
+        if (typeof info.playbackRate === "number") reported.rate = info.playbackRate;
+        if (typeof info.volume === "number") reported.volume = info.volume;
+        if (typeof info.muted === "boolean") reported.muted = info.muted;
+        const { rate, volume, muted } = playerPrefs();
+        if (reported.rate === rate && reported.volume === Math.round(volume * 100) && reported.muted === muted) prefsState.confirmed = true;
+        else if (prefsState.confirmed) savePlayerPrefs({ rate: reported.rate!, volume: reported.volume! / 100, muted: reported.muted! });
+      }
       if (typeof info === "object" && info && typeof info.currentTime === "number") saveProgress(info.currentTime);
       if ((message.event === "onStateChange" || message.event === "infoDelivery") && state === YOUTUBE_ENDED) onFinished.current();
     };
@@ -149,10 +187,12 @@ export function PlayerDock(props: {
               preload="metadata"
               onTimeUpdate={(e) => saveProgress(e.currentTarget.currentTime)}
               onPause={(e) => { if (!e.currentTarget.ended) saveProgress(e.currentTarget.currentTime, true); }}
+              onRateChange={rememberRate}
+              onVolumeChange={rememberVolume}
               onEnded={finished}
             />
           )}
-          <button type="button" className="player-video-size" onClick={() => setLarge((on) => !on)} aria-pressed={large}>
+          <button type="button" className="player-video-size" onClick={() => { savePlayerPrefs({ largeVideo: !large }); setLarge(!large); }} aria-pressed={large}>
             {large ? "Shrink" : "Enlarge"}
           </button>
         </div>
@@ -176,6 +216,8 @@ export function PlayerDock(props: {
           preload="metadata"
           onTimeUpdate={(e) => saveProgress(e.currentTarget.currentTime)}
           onPause={(e) => { if (!e.currentTarget.ended) saveProgress(e.currentTarget.currentTime, true); }}
+          onRateChange={rememberRate}
+          onVolumeChange={rememberVolume}
           onEnded={finished}
         />
       )}
