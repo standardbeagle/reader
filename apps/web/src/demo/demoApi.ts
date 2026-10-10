@@ -12,6 +12,7 @@ import type {
   ArticleQueryParams,
   FeedKind,
   LibbyState,
+  ListKind,
   ListRule,
   MediaFilter,
   CategoryCount,
@@ -54,6 +55,8 @@ interface DemoState {
   listItems: Record<string, string[]>;
   /** feedId → the visitor's category for it. Absent in overlays saved before categories existed. */
   feedCategories?: Record<string, string>;
+  /** Articles played through. Absent in overlays saved before playlists existed. */
+  played?: string[];
 }
 
 function loadState(): DemoState {
@@ -121,10 +124,15 @@ function applyRule(items: Article[], rule: ListRule): Article[] {
   return rule.order === "oldest" ? matched.reverse() : matched;
 }
 
+/** A dynamic playlist skips what has been played; a list keeps everything. */
+function unplayedFor(list: SavedList, items: Article[]): Article[] {
+  return list.kind === "playlist" ? items.filter((a) => !state.played?.includes(a.id)) : items;
+}
+
 function page(params: ArticleQueryParams): ArticlePage {
   let items = articles.filter(isVisible);
   const list = params.listId ? state.lists.find((l) => l.id === params.listId) : undefined;
-  if (list?.rule) items = applyRule(items, list.rule);
+  if (list?.rule) items = applyRule(unplayedFor(list, items), list.rule);
   else if (params.listId) {
     // A manual list plays in its own order, not by date.
     const order = state.listItems[params.listId] ?? [];
@@ -204,6 +212,22 @@ export const demoApi = {
     if (!a) return Promise.reject(new ApiError("article not found", "not_found", 404));
     return Promise.resolve({ ...a, listIds: listIdsFor(id) });
   },
+  setPlayed: (id: string): Promise<void> => {
+    const a = byId.get(id);
+    if (!a) return Promise.reject(new ApiError("article not found", "not_found", 404));
+    if (!a.readAt) {
+      a.readAt = new Date().toISOString();
+      state.read[id] = a.readAt;
+    }
+    state.played = [...new Set([...(state.played ?? []), id])];
+    for (const list of state.lists) {
+      if (list.kind !== "playlist") continue;
+      if (!list.rule) state.listItems[list.id] = (state.listItems[list.id] ?? []).filter((articleId) => articleId !== id);
+      if (list.progress?.articleId === id) list.progress = null;
+    }
+    persist();
+    return Promise.resolve();
+  },
   setRead: (id: string, read: boolean): Promise<void> => {
     const a = byId.get(id);
     if (a) {
@@ -225,11 +249,12 @@ export const demoApi = {
   },
   listLists: (): Promise<SavedList[]> =>
     Promise.resolve(state.lists.map((l) => {
-      // Lists saved before rules existed have no `rule` key at all.
+      // Lists saved before rules and playlists existed lack those keys.
       const rule = l.rule ?? null;
-      return { ...l, rule, itemCount: rule ? applyRule(articles.filter(isVisible), rule).length : (state.listItems[l.id] ?? []).length };
+      const list = { ...l, rule, kind: l.kind ?? "list", progress: l.progress ?? null };
+      return { ...list, itemCount: rule ? applyRule(unplayedFor(list, articles.filter(isVisible)), rule).length : (state.listItems[l.id] ?? []).length };
     })),
-  createList: (input: { title: string; visibility: "public" | "private"; rule?: ListRule }): Promise<SavedList> => {
+  createList: (input: { title: string; visibility: "public" | "private"; rule?: ListRule; kind?: ListKind }): Promise<SavedList> => {
     const list: SavedList = {
       id: crypto.randomUUID(),
       title: input.title,
@@ -238,6 +263,8 @@ export const demoApi = {
       createdAt: new Date().toISOString(),
       itemCount: 0,
       rule: input.rule ?? null,
+      kind: input.kind ?? "list",
+      progress: null,
     };
     state.lists.push(list);
     state.listItems[list.id] = [];
@@ -255,6 +282,14 @@ export const demoApi = {
   },
   setListItems: (listId: string, articleIds: string[]): Promise<void> => {
     state.listItems[listId] = [...new Set(articleIds)].filter((id) => byId.has(id));
+    persist();
+    return Promise.resolve();
+  },
+  setListProgress: (listId: string, articleId: string, seconds: number): Promise<void> => {
+    const list = state.lists.find((l) => l.id === listId);
+    if (!list) return Promise.reject(new ApiError("list not found", "not_found", 404));
+    if (list.kind !== "playlist") return Promise.reject(new ApiError("this is a list, not a playlist", "list_permanent", 409));
+    list.progress = { articleId, seconds };
     persist();
     return Promise.resolve();
   },

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  currentItem, jumpTo, playRequestCount, registerSeek, removeAt, savePosition, step, updateQueue, usePlayQueue,
+  afterPlayed, currentItem, jumpTo, playRequestCount, registerSeek, removeAt, savePosition, step, updateQueue, usePlayQueue,
   EMPTY_QUEUE, type QueueItem,
 } from "./playQueue";
 import { safeUrl } from "./urls";
@@ -9,15 +9,17 @@ import { youtubeVideo } from "./youtube";
 const YOUTUBE_ORIGIN = "https://www.youtube-nocookie.com";
 const YOUTUBE_ENDED = 0;
 const SAVE_EVERY_S = 5;
+/** A playlist's position goes to the server, so it is saved less often than the local one. */
+const SAVE_PLAYLIST_EVERY_S = 15;
 
-/** Remember playback progress, but not on every tick of the player. */
-function useProgressSaver(itemId: string | undefined) {
+/** Remember playback progress, but not on every tick of the player. `now` saves regardless. */
+function useProgressSaver(itemId: string | undefined, everySeconds: number, save: (itemId: string, seconds: number) => void) {
   const saved = useRef(0);
   useEffect(() => { saved.current = 0; }, [itemId]);
-  return (seconds: number) => {
-    if (!itemId || Math.abs(seconds - saved.current) < SAVE_EVERY_S) return;
+  return (seconds: number, now = false) => {
+    if (!itemId || (!now && Math.abs(seconds - saved.current) < everySeconds)) return;
     saved.current = seconds;
-    savePosition(itemId, seconds);
+    save(itemId, seconds);
   };
 }
 
@@ -31,6 +33,8 @@ export function PlayerDock(props: {
   onOpen: (item: QueueItem) => void;
   /** An item played to its end. */
   onPlayed: (item: QueueItem) => void;
+  /** How far into its current item a playlist has played. */
+  onPlaylistProgress: (playlistId: string, itemId: string, seconds: number) => void;
 }) {
   const queue = usePlayQueue();
   const requests = playRequestCount();
@@ -39,8 +43,11 @@ export function PlayerDock(props: {
   const [large, setLarge] = useState(false);
   const media = useRef<HTMLMediaElement | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
-  const saveProgress = useProgressSaver(item?.id);
-  const { onPlayed } = props;
+  const { onPlayed, onPlaylistProgress } = props;
+  const saveLocal = useProgressSaver(item?.id, SAVE_EVERY_S, savePosition);
+  const savePlaylist = useProgressSaver(queue.playlistId ? item?.id : undefined, SAVE_PLAYLIST_EVERY_S,
+    (itemId, seconds) => onPlaylistProgress(queue.playlistId!, itemId, seconds));
+  const saveProgress = (seconds: number, now = false) => { saveLocal(seconds, now); savePlaylist(seconds, now); };
 
   const src = safeUrl(item?.media?.url ?? null);
   const video = item && !src ? youtubeVideo(item.url) : null;
@@ -49,7 +56,7 @@ export function PlayerDock(props: {
   const finished = () => {
     if (!item) return;
     onPlayed(item);
-    updateQueue((q) => step(q, 1));
+    updateQueue(afterPlayed);
   };
   // Handlers below are bound once per item; they must see the latest closure.
   const onFinished = useRef(finished);
@@ -137,6 +144,7 @@ export function PlayerDock(props: {
               playsInline
               preload="metadata"
               onTimeUpdate={(e) => saveProgress(e.currentTarget.currentTime)}
+              onPause={(e) => { if (!e.currentTarget.ended) saveProgress(e.currentTarget.currentTime, true); }}
               onEnded={finished}
             />
           )}
@@ -163,6 +171,7 @@ export function PlayerDock(props: {
           controls
           preload="metadata"
           onTimeUpdate={(e) => saveProgress(e.currentTarget.currentTime)}
+          onPause={(e) => { if (!e.currentTarget.ended) saveProgress(e.currentTarget.currentTime, true); }}
           onEnded={finished}
         />
       )}

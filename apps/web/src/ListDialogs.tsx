@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, FEED_KINDS, type Article, type FeedKind, type ListRule, type MediaFilter } from "./api";
+import { api, FEED_KINDS, type Article, type FeedKind, type ListKind, type ListRule, type MediaFilter } from "./api";
 import { FEED_KIND_LABELS } from "./streams";
 import { setListShortcut, useListShortcuts } from "./listShortcuts";
 
@@ -23,6 +23,7 @@ function CreateListForm(props: {
 }) {
   const [title, setTitle] = useState("");
   const [isPublic, setIsPublic] = useState(false);
+  const [kind, setKind] = useState<ListKind>("list");
   // A dynamic list is described by a rule instead of filled by hand.
   const [dynamic, setDynamic] = useState(false);
   const [media, setMedia] = useState<MediaFilter | "">("");
@@ -41,15 +42,16 @@ function CreateListForm(props: {
     ...(Number(maxAgeDays) >= 1 ? { maxAgeDays: Math.floor(Number(maxAgeDays)) } : {}),
   });
   const create = useMutation({
-    mutationFn: () => api.createList({ title: title.trim(), visibility: isPublic ? "public" : "private", ...(dynamic ? { rule: rule() } : {}) }),
+    mutationFn: () => api.createList({ title: title.trim(), visibility: isPublic ? "public" : "private", kind, ...(dynamic ? { rule: rule() } : {}) }),
     onSuccess: () => {
       setTitle("");
       setIsPublic(false);
+      setKind("list");
       setDynamic(false);
       qc.invalidateQueries({ queryKey: ["lists"] });
       props.onCreated?.();
     },
-    onError: () => props.onActionError?.("Could not create that list."),
+    onError: () => props.onActionError?.(`Could not create that ${kind}.`),
   });
   return (
     <form className="list-create-form" onSubmit={(event) => {
@@ -57,7 +59,18 @@ function CreateListForm(props: {
       if (!title.trim() || create.isPending) return;
       create.mutate();
     }}>
-      <label htmlFor="list-title">List name</label>
+      <fieldset className="list-kind">
+        <legend>Kind</legend>
+        <label className="list-public-toggle">
+          <input type="radio" name="list-kind" checked={kind === "list"} onChange={() => setKind("list")} />
+          List — permanent: it keeps what you save to it
+        </label>
+        <label className="list-public-toggle">
+          <input type="radio" name="list-kind" checked={kind === "playlist"} onChange={() => setKind("playlist")} />
+          Playlist — a named play queue: it remembers where you are, and each item drops off once played
+        </label>
+      </fieldset>
+      <label htmlFor="list-title">Name</label>
       <input
         id="list-title"
         type="text"
@@ -72,12 +85,12 @@ function CreateListForm(props: {
           checked={isPublic}
           onChange={(event) => setIsPublic(event.target.checked)}
         />
-        Public — anyone with the RSS link can read this list
+        Public — anyone with the RSS link can read it
       </label>
       {props.allowDynamic && (
         <label className="list-public-toggle">
           <input type="checkbox" checked={dynamic} onChange={(event) => setDynamic(event.target.checked)} />
-          Fill automatically — the list is whatever matches a rule right now
+          Fill automatically — it holds whatever matches a rule right now
         </label>
       )}
       {dynamic && (
@@ -104,13 +117,13 @@ function CreateListForm(props: {
           <input id="rule-age" type="number" min={1} max={3650} placeholder="Any time" value={maxAgeDays} onChange={(event) => setMaxAgeDays(event.target.value)} />
           <label className="list-public-toggle">
             <input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} />
-            Unread only — an article leaves the list once it is read or played
+            Unread only — an article leaves once it is read or played
           </label>
         </fieldset>
       )}
       <div className="feed-dialog-actions">
         <button type="submit" className="primary" disabled={create.isPending || !title.trim()}>
-          {create.isPending ? "Creating…" : "Create list"}
+          {create.isPending ? "Creating…" : kind === "playlist" ? "Create playlist" : "Create list"}
         </button>
       </div>
     </form>
@@ -129,8 +142,8 @@ export function CreateListDialog(props: { open: boolean; onClose: () => void; on
       onClick={(event) => { if (event.target === event.currentTarget) props.onClose(); }}
     >
       <div className="feed-dialog-body">
-        <h2 id="create-list-title">New list</h2>
-        <p className="feed-dialog-sub">A list is a playlist: articles you save, kept in order, or a rule that fills itself. A public list is itself an RSS feed you can share.</p>
+        <h2 id="create-list-title">New list or playlist</h2>
+        <p className="feed-dialog-sub">Either one holds articles you save, kept in order, or fills itself from a rule. A public one is itself an RSS feed you can share.</p>
         <CreateListForm onCreated={props.onClose} onActionError={props.onActionError} allowDynamic />
         <div className="feed-dialog-actions">
           <button type="button" className="secondary" onClick={props.onClose}>Cancel</button>

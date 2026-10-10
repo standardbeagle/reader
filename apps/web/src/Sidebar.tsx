@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, feedPlatform, type Feed } from "./api";
 import { SourceWizard } from "./SourceWizard";
@@ -157,7 +157,7 @@ export function Sidebar(props: {
           >
             + Add source
           </button>
-          <button className="sidebar-action" type="button" onClick={() => setCreateListOpen(true)}>+ List</button>
+          <button className="sidebar-action" type="button" onClick={() => setCreateListOpen(true)}>+ List / playlist</button>
           <button className="sidebar-action" type="button" onClick={() => setAccountsOpen(true)}>Accounts</button>
           <button className="sidebar-action" type="button" onClick={() => setLibbyOpen(true)}>
             Library holds{readyHolds > 0 && <span className="ready-badge">{readyHolds} ready</span>}
@@ -187,33 +187,36 @@ export function Sidebar(props: {
             </li>
           ))}
         </ul>
-        {(lists.data ?? []).length > 0 && (
-          <>
-            <div className="panel-head">
-              <h2>Lists</h2>
-            </div>
-            <ul>
-              {(lists.data ?? []).map((list) => (
-                <li key={list.id} className={isSelected({ kind: "list", listId: list.id }) ? "selected" : ""}>
-                  <button onClick={() => props.onSelectStream({ kind: "list", listId: list.id })}>
-                    <span className="feed-title">
-                      {list.rule && <span className="platform-badge" title="Fills itself from a rule">auto</span>}
-                      {list.visibility === "public" && <span className="platform-badge">public</span>}
-                      {list.title}
+        {([["list", "Lists"], ["playlist", "Playlists"]] as const).map(([kind, heading]) => {
+          const ofKind = (lists.data ?? []).filter((list) => list.kind === kind);
+          return ofKind.length > 0 && (
+            <Fragment key={kind}>
+              <div className="panel-head">
+                <h2>{heading}</h2>
+              </div>
+              <ul>
+                {ofKind.map((list) => (
+                  <li key={list.id} className={isSelected({ kind: "list", listId: list.id }) ? "selected" : ""}>
+                    <button onClick={() => props.onSelectStream({ kind: "list", listId: list.id })}>
+                      <span className="feed-title">
+                        {list.rule && <span className="platform-badge" title="Fills itself from a rule">auto</span>}
+                        {list.visibility === "public" && <span className="platform-badge">public</span>}
+                        {list.title}
+                      </span>
+                      <span className="count">{list.itemCount}</span>
+                    </button>
+                    <span className="row-actions">
+                      {list.visibility === "public" && (
+                        <button title="Copy RSS link" aria-label={`Copy RSS link for ${list.title}`} onClick={() => copyListFeedUrl(list.token)}>⧉</button>
+                      )}
+                      <button title={`Delete ${kind}`} aria-label={`Delete ${kind} ${list.title}`} onClick={() => { if (confirm(`Delete ${kind} ${list.title}? Articles stay in their feeds.`)) deleteList.mutate(list.id); }}>×</button>
                     </span>
-                    <span className="count">{list.itemCount}</span>
-                  </button>
-                  <span className="row-actions">
-                    {list.visibility === "public" && (
-                      <button title="Copy RSS link" aria-label={`Copy RSS link for ${list.title}`} onClick={() => copyListFeedUrl(list.token)}>⧉</button>
-                    )}
-                    <button title="Delete list" aria-label={`Delete list ${list.title}`} onClick={() => { if (confirm(`Delete list ${list.title}? Articles stay in their feeds.`)) deleteList.mutate(list.id); }}>×</button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+                  </li>
+                ))}
+              </ul>
+            </Fragment>
+          );
+        })}
       </nav>
       {props.drawer && props.open && <div className="backdrop" onClick={props.onCloseDrawer} />}
       {wizardOpen && <SourceWizard onClose={() => setWizardOpen(false)} />}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { api, ApiError, type Article } from "./api";
+import { api, ApiError, type Article, type SavedList } from "./api";
 import { Sidebar } from "./Sidebar";
 import { ArticleList } from "./ArticleList";
 import { ArticleView, snoozePresets } from "./ArticleView";
@@ -160,22 +160,48 @@ export function App() {
 
   const selectStream = (next: Stream) => { navigate(streamPath(next, titles)); setDrawerOpen(false); };
 
-  // Play a stream: its audio and video, in the stream's own order, replace the queue.
+  // The playlist on screen, if the stream is one: playing it plays it down.
+  const playlist = stream.kind === "list" ? lists.data?.find((list) => list.id === stream.listId && list.kind === "playlist") ?? null : null;
+  // Play a stream: its audio and video, in the stream's own order, replace the
+  // queue. A playlist picks up where it left off unless a starting article is given.
   const playStream = useMutation({
-    mutationFn: () => api.listArticles({ ...streamQuery(stream), media: "any", limit: PLAY_STREAM_LIMIT }),
-    onSuccess: (page) => {
+    mutationFn: async (startId?: string) => ({
+      startId,
+      page: await api.listArticles({ ...streamQuery(stream), media: "any", limit: PLAY_STREAM_LIMIT }),
+    }),
+    onSuccess: ({ startId, page }) => {
       const name = streamTitle(stream, titles);
       if (page.articles.length === 0) return setShortcutNotice(`Nothing to play in “${name}”.`);
-      updateQueue(() => playAll(page.articles.map(queueItem), name));
+      const start = startId ? { id: startId, seconds: 0 } : playlist?.progress ? { id: playlist.progress.articleId, seconds: playlist.progress.seconds } : null;
+      updateQueue(() => playAll(page.articles.map(queueItem), name, { start, ...(playlist ? { playlistId: playlist.id } : {}) }));
       setShortcutNotice(`Playing ${page.articles.length}${page.nextCursor ? "+" : ""} from “${name}”.`);
     },
     onError: () => setShortcutNotice("Could not load that stream to play."),
   });
   const queueArticle = (target: Article, play: boolean) => {
     if (!isPlayable(target)) return setShortcutNotice("This article has no audio or video.");
+    // Playing an article out of a playlist plays the playlist from there, so it is played down like the rest.
+    if (play && playlist && queue.playlistId !== playlist.id) return playStream.mutate(target.id);
     updateQueue((q) => (play ? playNow(q, queueItem(target)) : enqueue(q, queueItem(target))));
     if (!play) setShortcutNotice(`Added “${target.title}” to the queue.`);
   };
+  // Played through: read, and off every playlist it was on.
+  const setPlayed = useMutation({
+    mutationFn: (id: string) => api.setPlayed(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      qc.invalidateQueries({ queryKey: ["feeds"] });
+      qc.invalidateQueries({ queryKey: ["lists"] });
+    },
+    onError: () => setShortcutNotice("Could not record that as played."),
+  });
+  const savePlaylistProgress = useMutation({
+    mutationFn: (at: { playlistId: string; itemId: string; seconds: number }) => api.setListProgress(at.playlistId, at.itemId, at.seconds),
+    // Patched in place: refetching every list on each save would recount every dynamic list.
+    onSuccess: (_data, at) => qc.setQueryData<SavedList[]>(["lists"], (all) =>
+      all?.map((list) => (list.id === at.playlistId ? { ...list, progress: { articleId: at.itemId, seconds: at.seconds } } : list))),
+    onError: () => setShortcutNotice("Could not save the playlist's position."),
+  });
   const openQueueItem = (item: QueueItem) => navigate(streamArticlePath({ kind: "feed", feedId: item.feedId }, item, titles));
   const selectArticle = (next: Article) => { setNavDir(null); navigate(articleHref(next)); setDrawerOpen(false); };
   const goArticle = (target: Article, dir: "prev" | "next") => {
@@ -298,7 +324,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
     // refresh.mutate is stable; depending on the mutation object would re-bind the
     // listener every render.
-  }, [articleList, streamId, feeds.data, lists.data, listShortcuts, navigate, refresh.mutate, snooze.mutate, saveToList.mutate, setRead.mutate, selectedArticle, shortcutHelp, toggle, unreadNav]);
+  }, [articleList, streamId, feeds.data, lists.data, queue.playlistId, listShortcuts, navigate, refresh.mutate, snooze.mutate, saveToList.mutate, setRead.mutate, selectedArticle, shortcutHelp, toggle, unreadNav]);
 
   const loadMore = useCallback(() => {
     if (articles.hasNextPage && !articles.isFetchingNextPage) void articles.fetchNextPage();
@@ -371,7 +397,7 @@ export function App() {
           onToggleCollapsed={() => toggle("list")}
           onActionError={setShortcutNotice}
           title={streamTitle(stream, titles)}
-          onPlayStream={() => playStream.mutate()}
+          onPlayStream={() => playStream.mutate(undefined)}
           playingStream={playStream.isPending}
           onQueue={(target) => queueArticle(target, false)}
         />
@@ -406,7 +432,11 @@ export function App() {
           </div>
         </div>
       )}
-      <PlayerDock onOpen={openQueueItem} onPlayed={(item) => setRead.mutate({ id: item.id, read: true })} />
+      <PlayerDock
+        onOpen={openQueueItem}
+        onPlayed={(item) => setPlayed.mutate(item.id)}
+        onPlaylistProgress={(playlistId, itemId, seconds) => savePlaylistProgress.mutate({ playlistId, itemId, seconds })}
+      />
       <ShortcutHints
         open={shortcutHelp}
         notice={shortcutNotice}

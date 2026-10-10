@@ -23,9 +23,11 @@ export interface PlayQueue {
   position: number;
   /** Where the queue came from, when it was started from a stream. */
   source: string | null;
+  /** The playlist this queue is playing down: finished items leave it, and its position is saved there. */
+  playlistId: string | null;
 }
 
-export const EMPTY_QUEUE: PlayQueue = { items: [], index: -1, position: 0, source: null };
+export const EMPTY_QUEUE: PlayQueue = { items: [], index: -1, position: 0, source: null, playlistId: null };
 
 /** Audio, video, or a YouTube link: something the player can play. */
 export function isPlayable(article: { url: string | null; media?: { url: string } | null }): boolean {
@@ -46,7 +48,7 @@ export function playNow(queue: PlayQueue, item: QueueItem, position = 0): PlayQu
   if (existing >= 0) return { ...queue, index: existing, position };
   const at = queue.index + 1;
   // With an outside item spliced in, the queue is no longer just the stream it started from.
-  return { items: [...queue.items.slice(0, at), item, ...queue.items.slice(at)], index: at, position, source: null };
+  return { items: [...queue.items.slice(0, at), item, ...queue.items.slice(at)], index: at, position, source: null, playlistId: null };
 }
 
 /** Add to the end. A queue with nothing loaded starts on the new item. */
@@ -55,10 +57,26 @@ export function enqueue(queue: PlayQueue, item: QueueItem): PlayQueue {
   return { ...queue, items: [...queue.items, item], index: queue.index < 0 ? 0 : queue.index };
 }
 
-/** Replace the queue with a stream's playable items, starting at `startId` or the top. */
-export function playAll(items: QueueItem[], source: string, startId?: string): PlayQueue {
+/**
+ * Replace the queue with a stream's playable items. It starts at `start`
+ * (an item and how far into it) when that item is there, else at the top.
+ */
+export function playAll(items: QueueItem[], source: string, opts: { start?: { id: string; seconds: number } | null; playlistId?: string } = {}): PlayQueue {
   if (items.length === 0) return EMPTY_QUEUE;
-  return { items, index: Math.max(0, items.findIndex((item) => item.id === startId)), position: 0, source };
+  const at = opts.start ? items.findIndex((item) => item.id === opts.start!.id) : -1;
+  return { items, index: Math.max(0, at), position: at >= 0 ? opts.start!.seconds : 0, source, playlistId: opts.playlistId ?? null };
+}
+
+/**
+ * The current item played to its end. A playlist's item is gone from the
+ * playlist, so it leaves the queue and whatever follows (or, at the end, what
+ * was skipped) plays; any other queue just moves on. Null when nothing follows.
+ */
+export function afterPlayed(queue: PlayQueue): PlayQueue | null {
+  if (!queue.playlistId) return step(queue, 1);
+  const items = queue.items.filter((_, i) => i !== queue.index);
+  if (items.length === 0) return EMPTY_QUEUE;
+  return { ...queue, items, index: queue.index < items.length ? queue.index : 0, position: 0 };
 }
 
 /** Move to the next or previous item; null when there is none in that direction. */
@@ -91,7 +109,7 @@ function load(): PlayQueue {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as PlayQueue | null;
     if (parsed && Array.isArray(parsed.items) && typeof parsed.index === "number" && parsed.index < parsed.items.length) {
-      snapshot = { items: parsed.items, index: parsed.index, position: Number(parsed.position) || 0, source: parsed.source ?? null };
+      snapshot = { items: parsed.items, index: parsed.index, position: Number(parsed.position) || 0, source: parsed.source ?? null, playlistId: parsed.playlistId ?? null };
     }
   } catch {
     // Corrupt storage: start with an empty queue rather than breaking the app.

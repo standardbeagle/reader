@@ -57,11 +57,16 @@ export interface ListRule {
   maxAgeDays?: number;
   order?: "newest" | "oldest";
 }
+export type ListKind = "list" | "playlist";
 export interface SavedList {
   id: string; title: string; visibility: "public" | "private";
   token: string; createdAt: string; itemCount: number;
   /** Null for a manual list (saved articles, in order); a rule fills a dynamic list. */
   rule: ListRule | null;
+  /** A list keeps its articles; a playlist is a named play queue that drops each one once played. */
+  kind: ListKind;
+  /** Where a playlist was last playing; null for a list. */
+  progress: { articleId: string; seconds: number } | null;
 }
 export interface ArticleQueryParams {
   feedId?: string; listId?: string; feedCategory?: string; feedKind?: FeedKind; category?: string;
@@ -210,15 +215,19 @@ const httpApi = {
   getChapters: (id: string) => req<{ chapters: Chapter[] }>(`/api/v1/articles/${encodeURIComponent(id)}/chapters`).then((r) => r.chapters),
   setRead: (id: string, read: boolean) =>
     req<void>(`/api/v1/articles/${id}/read`, { method: "POST", json: { read } }),
+  /** Played through: also marks it read and drops it from every playlist. */
+  setPlayed: (id: string) => req<void>(`/api/v1/articles/${id}/played`, { method: "POST", json: { played: true } }),
   setSnooze: (id: string, until: string | null) =>
     req<void>(`/api/v1/articles/${id}/snooze`, { method: "POST", json: { until } }),
   listLists: () => req<{ lists: SavedList[] }>("/api/v1/lists").then((r) => r.lists),
-  createList: (input: { title: string; visibility: "public" | "private"; rule?: ListRule }) =>
+  createList: (input: { title: string; visibility: "public" | "private"; rule?: ListRule; kind?: ListKind }) =>
     req<SavedList>("/api/v1/lists", { method: "POST", json: input }),
   updateList: (id: string, patch: { title?: string; rule?: ListRule }) =>
     req<SavedList>(`/api/v1/lists/${id}`, { method: "PATCH", json: patch }),
   setListItems: (listId: string, articleIds: string[]) =>
     req<void>(`/api/v1/lists/${listId}/items`, { method: "PUT", json: { articleIds } }),
+  setListProgress: (listId: string, articleId: string, seconds: number) =>
+    req<void>(`/api/v1/lists/${listId}/progress`, { method: "PUT", json: { articleId, seconds } }),
   deleteList: (id: string) => req<void>(`/api/v1/lists/${id}`, { method: "DELETE" }),
   addToList: (listId: string, articleId: string) =>
     req<void>(`/api/v1/lists/${listId}/items`, { method: "POST", json: { articleId } }),

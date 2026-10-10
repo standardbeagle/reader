@@ -912,6 +912,8 @@ kbd {
 }
 
 /* Dynamic list rule editor. */
+.list-kind { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
+.list-kind legend { padding: 0 var(--space-1); color: var(--text-dim); font-size: var(--fs-sm); }
 .list-rule { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
 .list-rule legend { padding: 0 var(--space-1); color: var(--text-dim); font-size: var(--fs-sm); }
 .list-rule label { margin-top: var(--space-2); }

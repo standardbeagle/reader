@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_QUEUE, currentItem, enqueue, isPlayable, jumpTo, playAll, playNow, removeAt, step, type PlayQueue, type QueueItem } from "./playQueue";
+import { EMPTY_QUEUE, afterPlayed, currentItem, enqueue, isPlayable, jumpTo, playAll, playNow, removeAt, step, type PlayQueue, type QueueItem } from "./playQueue";
 
 const item = (id: string): QueueItem => ({ id, feedId: "f1", title: id, url: null, media: { url: `https://cdn.example/${id}.mp3`, type: "audio/mpeg" }, imageUrl: null });
 const ids = (queue: PlayQueue) => queue.items.map((i) => i.id);
-const queueOf = (list: string[], index: number): PlayQueue => ({ items: list.map(item), index, position: 30, source: "Show" });
+const queueOf = (list: string[], index: number): PlayQueue => ({ items: list.map(item), index, position: 30, source: "Show", playlistId: null });
 
 describe("play queue", () => {
   it("knows what can be played", () => {
@@ -31,9 +31,25 @@ describe("play queue", () => {
   it("starts a stream at the chosen item, or the top", () => {
     const stream = ["a", "b", "c"].map(item);
     expect(playAll(stream, "Tech").index).toBe(0);
-    expect(playAll(stream, "Tech", "b")).toMatchObject({ index: 1, source: "Tech", position: 0 });
-    expect(playAll(stream, "Tech", "missing").index).toBe(0);
+    expect(playAll(stream, "Tech", { start: { id: "b", seconds: 40 } })).toMatchObject({ index: 1, source: "Tech", position: 40, playlistId: null });
+    // A resume point that is no longer in the stream must not carry its seconds onto another item.
+    expect(playAll(stream, "Tech", { start: { id: "missing", seconds: 40 }, playlistId: "pl" })).toMatchObject({ index: 0, position: 0, playlistId: "pl" });
     expect(playAll([], "Tech")).toBe(EMPTY_QUEUE);
+  });
+
+  it("moves on after an item ends, and drops it when the queue is a playlist", () => {
+    const plain = afterPlayed(queueOf(["a", "b"], 0))!;
+    expect([ids(plain), plain.index, plain.position]).toEqual([["a", "b"], 1, 0]);
+    expect(afterPlayed(queueOf(["a", "b"], 1))).toBeNull();
+
+    const playlist = (list: string[], index: number) => ({ ...queueOf(list, index), playlistId: "pl" });
+    const next = afterPlayed(playlist(["a", "b", "c"], 1))!;
+    expect([ids(next), currentItem(next)?.id, next.position, next.playlistId]).toEqual([["a", "c"], "c", 0, "pl"]);
+    // At the end, what was skipped earlier is still waiting.
+    expect(currentItem(afterPlayed(playlist(["a", "b"], 1))!)?.id).toBe("a");
+    expect(afterPlayed(playlist(["a"], 0))).toBe(EMPTY_QUEUE);
+    // Playing something from outside takes the queue off its playlist.
+    expect(playNow(playlist(["a", "b"], 0), item("x")).playlistId).toBeNull();
   });
 
   it("steps and jumps within bounds only", () => {
