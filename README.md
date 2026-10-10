@@ -26,9 +26,9 @@ RSS was always pull-based updates from publishers. Agents are exactly the kind o
 - **Unread-only navigation** — edge dots mark unread neighbors; a header toggle restricts prev/next (buttons, swipe, j/k) to unread articles
 - **Read state** — mark read on click, mark-all-read, per-feed unread counts
 - **Snooze** — hide an article until later (later today / tomorrow / next week); it stays unread and resurfaces when the snooze expires
-- **Lists as playlists** — ordered collections of saved articles, or dynamic lists filled by a rule (media, feed type, category, unread, age); public or private, and every public list is itself an RSS feed at `/lists/<token>.xml`
+- **Lists and playlists** — a list is a permanent, ordered collection; a playlist is a named play queue that remembers where you are and drops each item once played. Either one holds articles you save or fills itself from a rule (media, feed type, category, unread, age); public or private, and every public one is itself an RSS feed at `/lists/<token>.xml`
 - **MCP endpoint** — `/mcp` lets an MCP client read feeds and streams and curate lists
-- **Libby holds** — link a Libby account for a feed of hold notices, and place, suspend, cancel and borrow holds from reader
+- **Libby holds** — link a Libby account for a feed of hold notices, and place, suspend, cancel and borrow holds from reader. Off until you turn on "Libby sync" in Settings, because it uses Libby's private API
 - **Ingestors** — Mastodon (hashtags or your home timeline), Bluesky, and Reddit as feeds, or several feeds merged into one AI-filtered, summarized view; digest modes and LLM keep/drop threshold
 - **Connected accounts** — Mastodon and Reddit sign in through OAuth; no passwords stored
 - **Real-time** — Mastodon streaming and Bluesky Jetstream deliver posts as they are published, over outbound connections only

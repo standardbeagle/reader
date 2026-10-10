@@ -13,15 +13,18 @@ description: Notable changes to reader, newest first.
 - **Feed categories and types** — file feeds under your own categories (OPML
   imports keep their folders) and group the sidebar by category or by type.
   A category or type opens as a stream of its own.
-- **Lists are playlists** — a list keeps the order you saved in, and a list
-  can be **dynamic**: a rule such as "unplayed audio from the last 30 days"
-  that fills itself. **Behavior change:** a list now reads in saved order,
-  not by publish date.
+- **Lists and playlists** — a list is permanent and keeps the order you saved
+  in. A **playlist** is a named play queue: it remembers what it was playing
+  and how far in, each item drops off once played, and it empties only by
+  being played. Either one can be **dynamic**: a rule such as "audio from the
+  last 30 days" that fills itself. **Behavior change:** a list now reads in
+  saved order, not by publish date.
 - **MCP endpoint** at `/mcp` — an MCP client can read feeds and streams and
   curate lists.
 - **Libby holds** — link a Libby account to get a feed of hold notices (placed,
   moving up, ready, suspended, borrowed, cancelled) and place, suspend, cancel
-  and borrow holds from the sidebar.
+  and borrow holds from the sidebar. It uses Libby's private sync API, so it
+  is off until you turn on **Libby sync** in the new Settings dialog.
 - **YouTube videos play** in the dock through YouTube's privacy-enhanced
   embed player. The article shows a poster with Play and Queue; the earlier
   in-article player and its **Video** tab are gone.
