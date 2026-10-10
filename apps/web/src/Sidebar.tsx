@@ -5,6 +5,7 @@ import { SourceWizard } from "./SourceWizard";
 import { CreateListDialog } from "./ListDialogs";
 import { AccountsDialog } from "./Accounts";
 import { FeedCategoryDialog } from "./FeedCategoryDialog";
+import { LibbyDialog } from "./LibbyDialog";
 import { groupFeeds, streamKey, type FeedGrouping, type Stream } from "./streams";
 
 const GROUPING_KEY = "reader.feedGrouping";
@@ -25,6 +26,7 @@ export function Sidebar(props: {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [libbyOpen, setLibbyOpen] = useState(false);
   const [categoryFeed, setCategoryFeed] = useState<Feed | null>(null);
   const [grouping, setGrouping] = useState<FeedGrouping>(
     () => GROUPINGS.find((g) => g === localStorage.getItem(GROUPING_KEY)) ?? "category",
@@ -33,6 +35,7 @@ export function Sidebar(props: {
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds, refetchInterval: 60_000 });
   const ingestors = useQuery({ queryKey: ["ingestors"], queryFn: api.listIngestors });
   const lists = useQuery({ queryKey: ["lists"], queryFn: api.listLists });
+  const libby = useQuery({ queryKey: ["libby"], queryFn: api.getLibby });
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["feeds"] });
     qc.invalidateQueries({ queryKey: ["articles"] });
@@ -80,6 +83,7 @@ export function Sidebar(props: {
   // Before any feed has a category, one "Uncategorized" heading over everything says nothing.
   const groups = grouped.length === 1 && !grouped[0]!.stream ? [] : grouped;
   const categories = [...new Set(allFeeds.flatMap((f) => (f.category ? [f.category] : [])))].sort((a, b) => a.localeCompare(b));
+  const readyHolds = libby.data?.linked ? libby.data.holds.filter((h) => h.ready).length : 0;
 
   if (props.collapsed) {
     return (
@@ -116,7 +120,8 @@ export function Sidebar(props: {
             onClick={() => setCategoryFeed(f)}
           >▤</button>
           <button title="Mark all read" aria-label={`Mark all ${f.title} articles read`} onClick={() => markAll.mutate(f.id)}>✓</button>
-          <button title="Unsubscribe" aria-label={`Unsubscribe from ${f.title}`} onClick={() => { if (confirm(`Unsubscribe from ${f.title}?`)) unsub.mutate(f.id); }}>×</button>
+          {/* A Libby feed goes away with its account, from the library dialog. */}
+          {platform !== "libby" && <button title="Unsubscribe" aria-label={`Unsubscribe from ${f.title}`} onClick={() => { if (confirm(`Unsubscribe from ${f.title}?`)) unsub.mutate(f.id); }}>×</button>}
         </span>
       </li>
     );
@@ -152,6 +157,9 @@ export function Sidebar(props: {
           </button>
           <button className="sidebar-action" type="button" onClick={() => setCreateListOpen(true)}>+ List</button>
           <button className="sidebar-action" type="button" onClick={() => setAccountsOpen(true)}>Accounts</button>
+          <button className="sidebar-action" type="button" onClick={() => setLibbyOpen(true)}>
+            Library holds{readyHolds > 0 && <span className="ready-badge">{readyHolds} ready</span>}
+          </button>
         </div>
         <ul>
           <li className={props.stream.kind === "all" ? "selected" : ""}>
@@ -207,6 +215,7 @@ export function Sidebar(props: {
       {props.drawer && props.open && <div className="backdrop" onClick={props.onCloseDrawer} />}
       {wizardOpen && <SourceWizard onClose={() => setWizardOpen(false)} />}
       {accountsOpen && <AccountsDialog onClose={() => setAccountsOpen(false)} />}
+      {libbyOpen && <LibbyDialog onClose={() => setLibbyOpen(false)} onShowFeed={(feedId) => { setLibbyOpen(false); props.onSelectStream({ kind: "feed", feedId }); }} onActionError={props.onActionError} />}
       {categoryFeed && <FeedCategoryDialog feed={categoryFeed} categories={categories} onClose={() => setCategoryFeed(null)} onActionError={props.onActionError} />}
       <CreateListDialog open={createListOpen} onClose={() => setCreateListOpen(false)} onActionError={props.onActionError} />
     </>

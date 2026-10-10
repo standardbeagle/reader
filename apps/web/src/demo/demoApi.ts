@@ -11,6 +11,7 @@ import type {
   ArticlePage,
   ArticleQueryParams,
   FeedKind,
+  LibbyState,
   ListRule,
   MediaFilter,
   CategoryCount,
@@ -291,5 +292,15 @@ export const demoApi = {
   createCredential: () => readOnly(),
   deleteCredential: (_id: string) => readOnly(),
   startOAuth: () => readOnly(),
+  // Libby needs a server to hold the sign-in; the demo shows the unlinked state.
+  getLibby: (): Promise<LibbyState> => Promise.resolve({ linked: false }),
+  linkLibby: (_code: string): Promise<LibbyState> => readOnly(),
+  unlinkLibby: (): Promise<void> => readOnly(),
+  syncLibby: (): Promise<LibbyState> => readOnly(),
+  searchLibby: (_query: string, _cardId?: string) => readOnly(),
+  placeLibbyHold: (_cardId: string, _titleId: string): Promise<LibbyState> => readOnly(),
+  cancelLibbyHold: (_cardId: string, _titleId: string): Promise<LibbyState> => readOnly(),
+  suspendLibbyHold: (_cardId: string, _titleId: string, _days: number): Promise<LibbyState> => readOnly(),
+  borrowLibbyHold: (_cardId: string, _titleId: string): Promise<LibbyState> => readOnly(),
   testIngestor: (): Promise<IngestorTestResult> => readOnly(),
 };

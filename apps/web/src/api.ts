@@ -100,6 +100,31 @@ export function feedPlatform(url: string): FeedPlatform | null {
   return (m?.[1] as FeedPlatform | undefined) ?? null;
 }
 
+export interface LibbyCard { cardId: string; library: string; libraryKey: string | null }
+export interface LibbyHold {
+  titleId: string; cardId: string; title: string; author: string | null; format: string | null;
+  /** The patron's place in the queue. */
+  position: number | null;
+  holdsCount: number | null; ownedCopies: number | null; estimatedWaitDays: number | null;
+  /** The copy is waiting to be borrowed. */
+  ready: boolean;
+  placedAt: string | null; expiresAt: string | null; suspendedUntil: string | null; coverUrl: string | null;
+}
+/** The Libby account as of the last sync. */
+export type LibbyState =
+  | { linked: false }
+  | {
+    linked: true; feedId: string; cards: LibbyCard[]; holds: LibbyHold[];
+    lastSyncedAt: string | null; lastError: string | null; signInExpiresAt: string | null;
+    /** The sign-in lapsed or was removed; only a new setup code revives it. */
+    needsRelink: boolean;
+  };
+export interface LibbyCatalogTitle {
+  titleId: string; title: string; author: string | null; format: string | null; available: boolean;
+  ownedCopies: number | null; holdsCount: number | null; estimatedWaitDays: number | null; coverUrl: string | null;
+}
+export interface LibbySearchResult { cardId: string; library: string; titles: LibbyCatalogTitle[] }
+
 // ApiError lives in apiShared so the demo adapter can throw it without
 // importing this module — a circular import would deadlock the top-level
 // await that selects the demo implementation below.
@@ -207,6 +232,24 @@ const httpApi = {
     req<Credential>("/api/v1/credentials", { method: "POST", json: input }),
   deleteCredential: (id: string) => req<void>(`/api/v1/credentials/${id}`, { method: "DELETE" }),
   startOAuth: (input: OAuthStart) => req<{ authorizeUrl: string }>("/api/v1/oauth/start", { method: "POST", json: input }),
+  getLibby: () => req<LibbyState>("/api/v1/libby"),
+  linkLibby: (code: string) => req<LibbyState>("/api/v1/libby/link", { method: "POST", json: { code } }),
+  unlinkLibby: () => req<void>("/api/v1/libby", { method: "DELETE" }),
+  syncLibby: () => req<LibbyState>("/api/v1/libby/sync", { method: "POST" }),
+  searchLibby: (query: string, cardId?: string) => {
+    const q = new URLSearchParams({ q: query });
+    if (cardId) q.set("card_id", cardId);
+    return req<LibbySearchResult>(`/api/v1/libby/search?${q}`);
+  },
+  placeLibbyHold: (cardId: string, titleId: string) =>
+    req<LibbyState>("/api/v1/libby/holds", { method: "POST", json: { cardId, titleId } }),
+  cancelLibbyHold: (cardId: string, titleId: string) =>
+    req<LibbyState>(`/api/v1/libby/holds/${encodeURIComponent(cardId)}/${encodeURIComponent(titleId)}`, { method: "DELETE" }),
+  /** days = 0 lifts a suspension. */
+  suspendLibbyHold: (cardId: string, titleId: string, days: number) =>
+    req<LibbyState>(`/api/v1/libby/holds/${encodeURIComponent(cardId)}/${encodeURIComponent(titleId)}/suspend`, { method: "POST", json: { days } }),
+  borrowLibbyHold: (cardId: string, titleId: string) =>
+    req<LibbyState>(`/api/v1/libby/holds/${encodeURIComponent(cardId)}/${encodeURIComponent(titleId)}/borrow`, { method: "POST" }),
   testIngestor: (input: { kind: string; config: Record<string, unknown>; threshold?: number; llmEnabled?: boolean }) =>
     req<IngestorTestResult>("/api/v1/ingestors/test", { method: "POST", json: input }),
 };

@@ -15,6 +15,7 @@ import { useColumnLayout } from "./useColumnLayout";
 import { idFromRouteKey, safeUrl } from "./urls";
 import { navNeighbor } from "./articleNav";
 import { PlayerDock } from "./PlayerDock";
+import { useLibbyNotifications } from "./LibbyDialog";
 import { currentItem, enqueue, isPlayable, playAll, playNow, queueItem, updateQueue, usePlayQueue, type QueueItem } from "./playQueue";
 import { streamArticlePath, streamFromParams, streamKey, streamPath, streamQuery, streamTitle, type Stream, type StreamTitles } from "./streams";
 
@@ -101,6 +102,7 @@ export function App() {
     list: selectedListTitle,
   };
   const articleHref = (target: Pick<Article, "id" | "feedId" | "title">) => streamArticlePath(stream, target, titles);
+  useLibbyNotifications();
   const queue = usePlayQueue();
 
   const refresh = useMutation({
