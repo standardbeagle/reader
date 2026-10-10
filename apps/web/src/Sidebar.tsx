@@ -6,6 +6,7 @@ import { CreateListDialog } from "./ListDialogs";
 import { AccountsDialog } from "./Accounts";
 import { FeedCategoryDialog } from "./FeedCategoryDialog";
 import { LibbyDialog } from "./LibbyDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import { groupFeeds, streamKey, type FeedGrouping, type Stream } from "./streams";
 
 const GROUPING_KEY = "reader.feedGrouping";
@@ -27,6 +28,7 @@ export function Sidebar(props: {
   const [createListOpen, setCreateListOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [libbyOpen, setLibbyOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [categoryFeed, setCategoryFeed] = useState<Feed | null>(null);
   const [grouping, setGrouping] = useState<FeedGrouping>(
     () => GROUPINGS.find((g) => g === localStorage.getItem(GROUPING_KEY)) ?? "category",
@@ -160,6 +162,7 @@ export function Sidebar(props: {
           <button className="sidebar-action" type="button" onClick={() => setLibbyOpen(true)}>
             Library holds{readyHolds > 0 && <span className="ready-badge">{readyHolds} ready</span>}
           </button>
+          <button className="sidebar-action" type="button" onClick={() => setSettingsOpen(true)}>Settings</button>
         </div>
         <ul>
           <li className={props.stream.kind === "all" ? "selected" : ""}>
@@ -216,6 +219,7 @@ export function Sidebar(props: {
       {wizardOpen && <SourceWizard onClose={() => setWizardOpen(false)} />}
       {accountsOpen && <AccountsDialog onClose={() => setAccountsOpen(false)} />}
       {libbyOpen && <LibbyDialog onClose={() => setLibbyOpen(false)} onShowFeed={(feedId) => { setLibbyOpen(false); props.onSelectStream({ kind: "feed", feedId }); }} onActionError={props.onActionError} />}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onActionError={props.onActionError} />}
       {categoryFeed && <FeedCategoryDialog feed={categoryFeed} categories={categories} onClose={() => setCategoryFeed(null)} onActionError={props.onActionError} />}
       <CreateListDialog open={createListOpen} onClose={() => setCreateListOpen(false)} onActionError={props.onActionError} />
     </>

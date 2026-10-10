@@ -110,11 +110,16 @@ export interface LibbyHold {
   ready: boolean;
   placedAt: string | null; expiresAt: string | null; suspendedUntil: string | null; coverUrl: string | null;
 }
-/** The Libby account as of the last sync. */
+/** Switches the user sets for themselves. */
+export interface Settings {
+  /** Allow calls to Libby's private sync API. */
+  libbySyncEnabled: boolean;
+}
+/** The Libby account as of the last sync. syncEnabled mirrors the setting: while off, nothing is sent to Libby. */
 export type LibbyState =
-  | { linked: false }
+  | { linked: false; syncEnabled: boolean }
   | {
-    linked: true; feedId: string; cards: LibbyCard[]; holds: LibbyHold[];
+    linked: true; syncEnabled: boolean; feedId: string; cards: LibbyCard[]; holds: LibbyHold[];
     lastSyncedAt: string | null; lastError: string | null; signInExpiresAt: string | null;
     /** The sign-in lapsed or was removed; only a new setup code revives it. */
     needsRelink: boolean;
@@ -232,6 +237,8 @@ const httpApi = {
     req<Credential>("/api/v1/credentials", { method: "POST", json: input }),
   deleteCredential: (id: string) => req<void>(`/api/v1/credentials/${id}`, { method: "DELETE" }),
   startOAuth: (input: OAuthStart) => req<{ authorizeUrl: string }>("/api/v1/oauth/start", { method: "POST", json: input }),
+  getSettings: () => req<Settings>("/api/v1/settings"),
+  updateSettings: (patch: Partial<Settings>) => req<Settings>("/api/v1/settings", { method: "PATCH", json: patch }),
   getLibby: () => req<LibbyState>("/api/v1/libby"),
   linkLibby: (code: string) => req<LibbyState>("/api/v1/libby/link", { method: "POST", json: { code } }),
   unlinkLibby: () => req<void>("/api/v1/libby", { method: "DELETE" }),

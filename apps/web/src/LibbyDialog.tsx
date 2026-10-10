@@ -116,6 +116,11 @@ export function LibbyDialog(props: {
 
   const state = libby.data;
   const busy = run.isPending || link.isPending || unlink.isPending;
+  // With Libby sync switched off in Settings the server refuses every call to Libby.
+  const syncOff = state ? !state.syncEnabled : false;
+  const syncOffNotice = (
+    <p className="libby-error" role="alert">Libby sync is switched off. Turn on “Libby sync” in Settings to use it.</p>
+  );
   const held = new Set(state?.linked ? state.holds.map(holdId) : []);
 
   const linkForm = (relink: boolean) => (
@@ -167,7 +172,7 @@ export function LibbyDialog(props: {
               Libby has no public interface for this. Reader signs in as another of your devices, the way the Libby app
               does, which OverDrive's terms do not cover — they can change it or cut it off at any time.
             </p>
-            {linkForm(false)}
+            {syncOff ? syncOffNotice : linkForm(false)}
           </>
         )}
 
@@ -177,7 +182,7 @@ export function LibbyDialog(props: {
               {state.cards.map((card) => card.library).join(", ") || "Linked"}
               {state.lastSyncedAt && ` · synced ${new Date(state.lastSyncedAt).toLocaleString()}`}
             </p>
-            {state.needsRelink ? (
+            {syncOff ? syncOffNotice : state.needsRelink ? (
               <>
                 <p className="libby-error" role="alert">The Libby sign-in has lapsed. Link again with a new setup code; your hold history stays.</p>
                 {linkForm(true)}
@@ -185,7 +190,7 @@ export function LibbyDialog(props: {
             ) : state.lastError && <p className="libby-error" role="alert">Last sync failed: {state.lastError}</p>}
 
             <div className="libby-toolbar">
-              <button type="button" disabled={busy || state.needsRelink} onClick={() => run.mutate(api.syncLibby)}>{run.isPending ? "Working…" : "Sync now"}</button>
+              <button type="button" disabled={busy || syncOff || state.needsRelink} onClick={() => run.mutate(api.syncLibby)}>{run.isPending ? "Working…" : "Sync now"}</button>
               <button type="button" onClick={() => props.onShowFeed(state.feedId)}>Show hold notices</button>
               <label className="list-public-toggle">
                 <input type="checkbox" checked={notify} onChange={() => void toggleNotify()} />
@@ -206,15 +211,15 @@ export function LibbyDialog(props: {
                     </div>
                     <div className="libby-hold-actions">
                       {hold.ready && (
-                        <button type="button" className="primary" disabled={busy} onClick={() => run.mutate(() => api.borrowLibbyHold(hold.cardId, hold.titleId))}>Borrow</button>
+                        <button type="button" className="primary" disabled={busy || syncOff} onClick={() => run.mutate(() => api.borrowLibbyHold(hold.cardId, hold.titleId))}>Borrow</button>
                       )}
                       {hold.suspendedUntil ? (
-                        <button type="button" disabled={busy} onClick={() => run.mutate(() => api.suspendLibbyHold(hold.cardId, hold.titleId, 0))}>Resume</button>
+                        <button type="button" disabled={busy || syncOff} onClick={() => run.mutate(() => api.suspendLibbyHold(hold.cardId, hold.titleId, 0))}>Resume</button>
                       ) : (
                         <select
                           aria-label={`Suspend the hold on ${hold.title}`}
                           value=""
-                          disabled={busy}
+                          disabled={busy || syncOff}
                           onChange={(event) => { const days = Number(event.target.value); if (days) run.mutate(() => api.suspendLibbyHold(hold.cardId, hold.titleId, days)); }}
                         >
                           <option value="">Suspend…</option>
@@ -223,7 +228,7 @@ export function LibbyDialog(props: {
                       )}
                       <button
                         type="button"
-                        disabled={busy}
+                        disabled={busy || syncOff}
                         onClick={() => { if (confirm(`Cancel the hold on ${hold.title}? You lose your place in the queue.`)) run.mutate(() => api.cancelLibbyHold(hold.cardId, hold.titleId)); }}
                       >Cancel</button>
                     </div>
@@ -255,7 +260,7 @@ export function LibbyDialog(props: {
                     <div className="libby-hold-actions">
                       {held.has(holdId({ cardId: search.data.cardId, titleId: title.titleId }))
                         ? <span className="libby-hold-status">On hold</span>
-                        : <button type="button" disabled={busy || state.needsRelink} onClick={() => run.mutate(() => api.placeLibbyHold(search.data.cardId, title.titleId))}>Place hold</button>}
+                        : <button type="button" disabled={busy || syncOff || state.needsRelink} onClick={() => run.mutate(() => api.placeLibbyHold(search.data.cardId, title.titleId))}>Place hold</button>}
                     </div>
                   </li>
                 ))}

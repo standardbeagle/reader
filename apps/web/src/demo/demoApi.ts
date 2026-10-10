@@ -21,6 +21,7 @@ import type {
   Ingestor,
   IngestorTestResult,
   SavedList,
+  Settings,
   SubscribeResult,
   Chapter,
   Embeddability,
@@ -293,7 +294,9 @@ export const demoApi = {
   deleteCredential: (_id: string) => readOnly(),
   startOAuth: () => readOnly(),
   // Libby needs a server to hold the sign-in; the demo shows the unlinked state.
-  getLibby: (): Promise<LibbyState> => Promise.resolve({ linked: false }),
+  getSettings: (): Promise<Settings> => Promise.resolve({ libbySyncEnabled: false }),
+  updateSettings: (_patch: Partial<Settings>): Promise<Settings> => readOnly(),
+  getLibby: (): Promise<LibbyState> => Promise.resolve({ linked: false, syncEnabled: false }),
   linkLibby: (_code: string): Promise<LibbyState> => readOnly(),
   unlinkLibby: (): Promise<void> => readOnly(),
   syncLibby: (): Promise<LibbyState> => readOnly(),
