@@ -4,6 +4,7 @@ import { createServer } from "../src/api/server.js";
 import { createSqliteStorage } from "../src/storage/sqlite.js";
 import type { Storage } from "../src/storage/types.js";
 import type { ParsedArticle } from "@reader/core";
+import { startFixtureServer } from "./fixtureServer.js";
 
 const identity = (html: string) => html;
 
@@ -88,6 +89,50 @@ describe("list playlists (storage)", () => {
     expect(titles(list.id)).toEqual(["p3", "p2", "p1"]);
     expect(storage.listListArticles(list.id, 10).map((a) => a.title)).toEqual(["p3", "p2", "p1"]);
   });
+
+  it("drops a played article from every playlist and remembers where one was playing", () => {
+    const queue = storage.createList(userId, { title: "Commute", visibility: "private", kind: "playlist" });
+    const keep = storage.createList(userId, { title: "Keep", visibility: "private" });
+    expect(queue).toMatchObject({ kind: "playlist", progress: null });
+    storage.setListItems(queue.id, [ids.p2!, ids.p1!, ids.b1!]);
+    storage.setListItems(keep.id, [ids.p2!, ids.p1!]);
+
+    storage.setListProgress(queue.id, ids.p1!, 754.5);
+    expect(storage.getList(queue.id)!.progress).toEqual({ articleId: ids.p1!, seconds: 754.5 });
+    // Finishing another item leaves the playing position alone; finishing the playing one clears it.
+    storage.setPlayed(userId, ids.p2!, true);
+    expect(storage.getList(queue.id)!.progress).toEqual({ articleId: ids.p1!, seconds: 754.5 });
+    storage.setPlayed(userId, ids.p1!, true);
+    expect(storage.getList(queue.id)!.progress).toBeNull();
+    expect(titles(queue.id)).toEqual(["b1"]);
+    // Played is read; and a list is permanent, so it keeps what was played.
+    expect(storage.getArticle(userId, ids.p1!)!.readAt).not.toBeNull();
+    expect(titles(keep.id)).toEqual(["p2", "p1"]);
+
+    // An emptied playlist is still there, and a played article can be queued again.
+    storage.setPlayed(userId, ids.b1!, true);
+    expect(storage.listLists(userId).find((l) => l.id === queue.id)).toMatchObject({ title: "Commute", itemCount: 0 });
+    storage.addToList(queue.id, ids.p2!);
+    expect(titles(queue.id)).toEqual(["p2"]);
+  });
+
+  it("leaves played articles out of a dynamic playlist, but not out of a dynamic list", () => {
+    const rule = { media: "audio" as const, order: "oldest" as const };
+    const queue = storage.createList(userId, { title: "Pods", visibility: "private", rule, kind: "playlist" });
+    const archive = storage.createList(userId, { title: "All pods", visibility: "private", rule });
+    storage.setPlayed(userId, ids.p1!, true);
+    expect(titles(queue.id)).toEqual(["p2"]);
+    expect(titles(archive.id)).toEqual(["p1", "p2"]);
+    expect(Object.fromEntries(storage.listLists(userId).map((l) => [l.title, l.itemCount]))).toEqual({ Pods: 1, "All pods": 2 });
+    expect(storage.listListArticles(queue.id, 10).map((a) => a.title)).toEqual(["p2"]);
+    storage.upsertArticles(podId, [article("p3", 5, { media: { url: "https://pod.example.com/3.mp3", type: "audio/mpeg" } })], identity);
+    expect(titles(queue.id)).toEqual(["p2", "p3"]);
+
+    // Clearing the record brings it back, and does not un-read it.
+    storage.setPlayed(userId, ids.p1!, false);
+    expect(titles(queue.id)).toEqual(["p1", "p2", "p3"]);
+    expect(storage.getArticle(userId, ids.p1!)!.readAt).not.toBeNull();
+  });
 });
 
 describe("list playlists (api)", () => {
@@ -140,5 +185,45 @@ describe("list playlists (api)", () => {
     expect(stray.statusCode).toBe(400);
     const inList = await app.inject({ method: "GET", url: `/api/v1/articles?order=position&list_id=${manual.id}` });
     expect(inList.statusCode).toBe(200);
+  });
+
+  it("plays down a playlist over the API and refuses that for a permanent list", async () => {
+    expect((await post("/api/v1/lists", { title: "Bad", kind: "queue" })).json().error.code).toBe("invalid_kind");
+    const list = (await post("/api/v1/lists", { title: "Keep" })).json();
+    const queue = (await post("/api/v1/lists", { title: "Commute", kind: "playlist" })).json();
+    expect([list.kind, queue.kind, queue.progress]).toEqual(["list", "playlist", null]);
+
+    const fixture = await startFixtureServer({ "/pod.xml": { xml: `<?xml version="1.0"?><rss version="2.0"><channel><title>Pod</title>
+<item><title>Ep 1</title><guid>e1</guid><enclosure url="https://pod.example.com/1.mp3" type="audio/mpeg" length="1"/></item>
+<item><title>Ep 2</title><guid>e2</guid><enclosure url="https://pod.example.com/2.mp3" type="audio/mpeg" length="1"/></item>
+</channel></rss>` } });
+    try {
+      expect((await post("/api/v1/feeds", { url: `${fixture.baseUrl}/pod.xml` })).statusCode).toBe(201);
+    } finally {
+      await new Promise((r) => fixture.server.close(r));
+    }
+    const articles = (await app.inject({ method: "GET", url: "/api/v1/articles" })).json().articles as { id: string; title: string }[];
+    const [ep1, ep2] = ["Ep 1", "Ep 2"].map((title) => articles.find((a) => a.title === title)!.id);
+    const inQueue = async () => ((await app.inject({ method: "GET", url: `/api/v1/articles?list_id=${queue.id}` })).json().articles as { id: string }[]).map((a) => a.id);
+    const progress = (id: string, payload: object) => app.inject({ method: "PUT", url: `/api/v1/lists/${id}/progress`, payload });
+
+    for (const id of [list.id, queue.id]) {
+      expect((await app.inject({ method: "PUT", url: `/api/v1/lists/${id}/items`, payload: { articleIds: [ep2, ep1] } })).statusCode).toBe(204);
+    }
+    expect((await progress(queue.id, { articleId: ep2, seconds: 61.5 })).statusCode).toBe(204);
+    expect((await progress(queue.id, { articleId: ep2, seconds: -1 })).statusCode).toBe(400);
+    expect((await progress(queue.id, { articleId: "nope", seconds: 1 })).statusCode).toBe(404);
+    const lists = (await app.inject({ method: "GET", url: "/api/v1/lists" })).json().lists as { id: string; progress: unknown }[];
+    expect(lists.find((l) => l.id === queue.id)!.progress).toEqual({ articleId: ep2, seconds: 61.5 });
+
+    expect((await post(`/api/v1/articles/${ep2}/played`, {})).statusCode).toBe(204);
+    expect(await inQueue()).toEqual([ep1]);
+    expect((await post("/api/v1/articles/nope/played", {})).statusCode).toBe(404);
+
+    // A list is permanent: it keeps what was played and has no playing position.
+    const refused = await progress(list.id, { articleId: ep2, seconds: 5 });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe("list_permanent");
+    expect((await app.inject({ method: "GET", url: `/api/v1/articles?list_id=${list.id}` })).json().articles).toHaveLength(2);
   });
 });

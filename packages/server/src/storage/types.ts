@@ -105,6 +105,8 @@ export interface ArticleQuery {
   feedId?: string;
   /** Restrict to this list: its saved articles, or whatever its rule matches. */
   listId?: string;
+  /** Leave out articles the user has already played. */
+  unplayedOnly?: boolean;
   /** Restrict to these feeds. */
   feedIds?: string[];
   /** Restrict to feeds the user filed under this category. */
@@ -138,6 +140,8 @@ export interface ArticlePage {
 }
 
 export type ListVisibility = "public" | "private";
+/** A list keeps its articles; a playlist is a named play queue that drops each one once played. */
+export type ListKind = "list" | "playlist";
 
 /** What a dynamic list contains: every article matching all the set fields. */
 export interface ListRule {
@@ -161,6 +165,9 @@ export interface SavedList {
   token: string;
   /** Null for a manual list, whose articles are saved one by one and ordered. */
   rule: ListRule | null;
+  kind: ListKind;
+  /** Where a playlist was last playing; always null for a list. */
+  progress: { articleId: string; seconds: number } | null;
   createdAt: string;
 }
 
@@ -251,9 +258,14 @@ export interface Storage {
   setRead(userId: string, articleId: string, read: boolean): void;
   /** until=null clears the snooze; the article stays unread either way. */
   setSnooze(userId: string, articleId: string, until: Date | null): void;
+  /**
+   * Record that the user played an article through (which also reads it) and
+   * drop it from their playlists; played=false only clears the record.
+   */
+  setPlayed(userId: string, articleId: string, played: boolean): void;
   markAllRead(userId: string, feedId: string): void;
   unreadCounts(userId: string): Record<string, number>;
-  createList(userId: string, input: { title: string; visibility: ListVisibility; rule?: ListRule | null }): SavedList;
+  createList(userId: string, input: { title: string; visibility: ListVisibility; rule?: ListRule | null; kind?: ListKind }): SavedList;
   /** A rule can replace a dynamic list's rule; it never turns a manual list dynamic. */
   updateList(id: string, patch: { title?: string; visibility?: ListVisibility; rule?: ListRule }): SavedList;
   listLists(userId: string): SavedListWithCount[];
@@ -265,6 +277,8 @@ export interface Storage {
   /** Replaces a manual list's articles with exactly these, in this order. */
   setListItems(listId: string, articleIds: string[]): void;
   removeFromList(listId: string, articleId: string): void;
+  /** Remember what a playlist is playing and how many seconds in. */
+  setListProgress(listId: string, articleId: string, seconds: number): void;
   /** A list's articles with content, for RSS output: newest saved first, or a dynamic list's own order. */
   listListArticles(listId: string, limit: number): Article[];
   createIngestor(userId: string, input: { kind: IngestorKind; config: Record<string, unknown>; feedId: string }): Ingestor;

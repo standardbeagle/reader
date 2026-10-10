@@ -163,20 +163,29 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: "article_set_played",
+    description: "Mark an article played (which also marks it read and drops it from every playlist), or clear that with played=false. Clearing does not put it back on a manual playlist.",
+    inputSchema: { type: "object", properties: { articleId: { type: "string" }, played: { type: "boolean" } }, required: ["articleId", "played"] },
+    calls: (args) => {
+      if (typeof args.played !== "boolean") throw new ToolInputError("played must be true or false");
+      return [{ method: "POST", url: `/api/v1/articles/${seg(text(args, "articleId"))}/played`, payload: { played: args.played } }];
+    },
+  },
+  {
     name: "lists_list",
-    description: "List the user's lists (playlists). A list with rule=null is manual: it holds chosen articles in a set order. A list with a rule is dynamic: it contains whatever matches the rule right now.",
+    description: "List the user's lists and playlists. kind=list is permanent: it keeps its articles. kind=playlist is a named play queue: an article drops off once played, and progress says what it is playing and how many seconds in. Either kind is manual (rule=null: chosen articles in a set order) or dynamic (a rule: whatever matches right now; a playlist's rule skips articles already played).",
     inputSchema: { type: "object", properties: {} },
     calls: () => [{ method: "GET", url: "/api/v1/lists" }],
     shape: (body) => ({
-      lists: (body as { lists: { id: string; title: string; visibility: string; rule: unknown; itemCount: number }[] }).lists
-        .map((l) => ({ id: l.id, title: l.title, visibility: l.visibility, rule: l.rule, itemCount: l.itemCount })),
+      lists: (body as { lists: { id: string; title: string; kind: string; visibility: string; rule: unknown; progress: unknown; itemCount: number }[] }).lists
+        .map((l) => ({ id: l.id, title: l.title, kind: l.kind, visibility: l.visibility, rule: l.rule, progress: l.progress, itemCount: l.itemCount })),
     }),
   },
   {
     name: "list_create",
-    description: "Create a list (playlist). Omit rule for a manual list you fill with list_set_items or list_add_items; give a rule for a dynamic list that fills itself. A list keeps the kind it is created as.",
-    inputSchema: { type: "object", properties: { title: { type: "string" }, rule: RULE_SCHEMA }, required: ["title"] },
-    calls: (args) => [{ method: "POST", url: "/api/v1/lists", payload: { title: text(args, "title"), ...(args.rule !== undefined ? { rule: args.rule } : {}) } }],
+    description: "Create a list or a playlist. kind=list (the default) is permanent; kind=playlist is a named play queue whose articles drop off as they are played. Omit rule to fill it yourself with list_set_items or list_add_items; give a rule for one that fills itself. Kind, and manual versus dynamic, are fixed at creation.",
+    inputSchema: { type: "object", properties: { title: { type: "string" }, kind: { type: "string", enum: ["list", "playlist"] }, rule: RULE_SCHEMA }, required: ["title"] },
+    calls: (args) => [{ method: "POST", url: "/api/v1/lists", payload: { title: text(args, "title"), ...(args.kind !== undefined ? { kind: args.kind } : {}), ...(args.rule !== undefined ? { rule: args.rule } : {}) } }],
   },
   {
     name: "list_update",

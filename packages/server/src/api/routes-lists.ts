@@ -3,13 +3,14 @@ import type { Storage } from "../storage/types.js";
 import { listFeedXml } from "./rss.js";
 import { InvalidListRule, parseListRule } from "./list-rule.js";
 
-interface CreateListBody { title?: string; visibility?: string; rule?: unknown }
+interface CreateListBody { title?: string; visibility?: string; rule?: unknown; kind?: unknown }
 interface AddItemBody { articleId?: string }
 
 const MAX_LIST_TITLE = 200;
 const MAX_LIST_ITEMS = 1000;
 const PUBLIC_FEED_LIMIT = 100;
 
+const PERMANENT_LIST_ERROR = { error: { code: "list_permanent", message: "this is a list, not a playlist: it keeps its articles and has no playing position" } };
 const DYNAMIC_LIST_ERROR = { error: { code: "list_dynamic", message: "this list is filled by its rule; change the rule instead" } };
 
 export function registerListRoutes(app: FastifyInstance, storage: Storage): void {
@@ -26,6 +27,10 @@ export function registerListRoutes(app: FastifyInstance, storage: Storage): void
     if (visibility !== "public" && visibility !== "private") {
       return reply.code(400).send({ error: { code: "invalid_visibility", message: "visibility must be public or private" } });
     }
+    const kind = req.body?.kind ?? "list";
+    if (kind !== "list" && kind !== "playlist") {
+      return reply.code(400).send({ error: { code: "invalid_kind", message: "kind must be list or playlist" } });
+    }
     let rule = null;
     if (req.body?.rule !== undefined && req.body.rule !== null) {
       try {
@@ -35,7 +40,7 @@ export function registerListRoutes(app: FastifyInstance, storage: Storage): void
         return reply.code(400).send({ error: { code: "invalid_rule", message: e.message } });
       }
     }
-    const list = storage.createList(userId(), { title, visibility, rule });
+    const list = storage.createList(userId(), { title, visibility, rule, kind });
     return reply.code(201).send(list);
   });
 
@@ -119,6 +124,24 @@ export function registerListRoutes(app: FastifyInstance, storage: Storage): void
       return reply.code(404).send({ error: { code: "not_found", message: "list not found" } });
     }
     storage.removeFromList(list.id, req.params.articleId);
+    return reply.code(204).send();
+  });
+
+  // Where the playlist is playing, so it resumes there on any device.
+  app.put<{ Params: { id: string }; Body: { articleId?: string; seconds?: unknown } }>("/api/v1/lists/:id/progress", async (req, reply) => {
+    const list = storage.getList(req.params.id);
+    if (!list || list.userId !== userId()) {
+      return reply.code(404).send({ error: { code: "not_found", message: "list not found" } });
+    }
+    if (list.kind !== "playlist") return reply.code(409).send(PERMANENT_LIST_ERROR);
+    const { articleId, seconds } = req.body ?? {};
+    if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) {
+      return reply.code(400).send({ error: { code: "invalid_progress", message: "seconds must be a number, zero or more" } });
+    }
+    if (!articleId || !storage.getArticle(list.userId, articleId)) {
+      return reply.code(404).send({ error: { code: "not_found", message: "article not found" } });
+    }
+    storage.setListProgress(list.id, articleId, seconds);
     return reply.code(204).send();
   });
 

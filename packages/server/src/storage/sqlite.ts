@@ -175,6 +175,7 @@ export function createSqliteStorage(path: string): Storage {
     if (q.feedCategory) { clauses.push("f.category = ?"); params.push(q.feedCategory); }
     if (q.feedKind) { clauses.push(`${FEED_KIND_SQL} = ?`); params.push(q.feedKind); }
     if (q.listId) { clauses.push("li.list_id = ?"); params.push(q.listId); }
+    if (q.unplayedOnly) { clauses.push("ua.played_at IS NULL"); }
     if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
     if (!q.includeSnoozed) {
       clauses.push("(ua.snoozed_until IS NULL OR ua.snoozed_until <= ?)");
@@ -203,8 +204,15 @@ export function createSqliteStorage(path: string): Storage {
       visibility: r.visibility as SavedList["visibility"],
       token: r.token as string,
       rule: r.rule ? JSON.parse(r.rule as string) as ListRule : null,
+      kind: r.kind as SavedList["kind"],
+      progress: r.playing_article_id ? { articleId: r.playing_article_id as string, seconds: r.playing_seconds as number } : null,
       createdAt: r.created_at as string,
     };
+  }
+
+  /** What a dynamic list's rule selects: for a playlist, minus what has been played. */
+  function ruleFilter(list: SavedList): Partial<ArticleQuery> {
+    return { ...list.rule, ...(list.kind === "playlist" ? { unplayedOnly: true } : {}) };
   }
 
   function rowToIngestor(r: Record<string, unknown>): Ingestor {
@@ -413,7 +421,7 @@ export function createSqliteStorage(path: string): Storage {
       if (list?.rule) {
         // A dynamic list has no members: its rule is the query.
         const { listId: _listId, ...rest } = q;
-        return this.listArticlePage({ ...rest, ...list.rule, order: list.rule.order ?? "newest" });
+        return this.listArticlePage({ ...rest, ...ruleFilter(list), order: list.rule.order ?? "newest" });
       }
       const includeContent = q.includeContent !== false;
       const order = q.order ?? (q.listId ? "position" : "newest");
@@ -511,6 +519,29 @@ export function createSqliteStorage(path: string): Storage {
       `).run(userId, articleId, read ? new Date().toISOString() : null);
     },
 
+    setPlayed(userId, articleId, played) {
+      const now = new Date().toISOString();
+      const record = db.prepare(`
+        INSERT INTO user_articles (user_id, article_id, read_at, starred_at, played_at)
+        VALUES (?, ?, ?, NULL, ?)
+        ON CONFLICT (user_id, article_id) DO UPDATE SET
+          played_at = excluded.played_at,
+          read_at = COALESCE(user_articles.read_at, excluded.read_at)
+      `);
+      if (!played) {
+        record.run(userId, articleId, null, null);
+        return;
+      }
+      const playlists = "SELECT id FROM lists WHERE user_id = ? AND kind = 'playlist'";
+      const drop = db.prepare(`DELETE FROM list_items WHERE article_id = ? AND list_id IN (${playlists})`);
+      const forget = db.prepare(`UPDATE lists SET playing_article_id = NULL, playing_seconds = 0 WHERE playing_article_id = ? AND id IN (${playlists})`);
+      db.transaction(() => {
+        record.run(userId, articleId, now, now);
+        drop.run(articleId, userId);
+        forget.run(articleId, userId);
+      })();
+    },
+
     setSnooze(userId, articleId, until) {
       // Setting a snooze also clears read_at: a snoozed article comes back
       // unread when the snooze expires. Clearing the snooze leaves read_at
@@ -548,9 +579,9 @@ export function createSqliteStorage(path: string): Storage {
     createList(userId, input): SavedList {
       const id = randomUUID();
       const token = randomUUID();
-      db.prepare(`INSERT INTO lists (id, user_id, title, visibility, token, rule, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, userId, input.title, input.visibility, token, input.rule ? JSON.stringify(input.rule) : null, new Date().toISOString());
+      db.prepare(`INSERT INTO lists (id, user_id, title, visibility, token, rule, kind, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, userId, input.title, input.visibility, token, input.rule ? JSON.stringify(input.rule) : null, input.kind ?? "list", new Date().toISOString());
       return this.getList(id)!;
     },
 
@@ -580,7 +611,7 @@ export function createSqliteStorage(path: string): Storage {
         const list = rowToList(r);
         if (!list.rule) return { ...list, itemCount: r.item_count as number };
         // A dynamic list has no rows to count; count what its rule matches now.
-        const { joins, clauses, params } = articleFilter({ userId, limit: 0, ...list.rule });
+        const { joins, clauses, params } = articleFilter({ userId, limit: 0, ...ruleFilter(list) });
         const matched = db.prepare(`SELECT COUNT(*) AS n FROM articles a ${joins} WHERE ${clauses.join(" AND ")}`)
           .get(...params) as { n: number };
         return { ...list, itemCount: matched.n };
@@ -622,6 +653,10 @@ export function createSqliteStorage(path: string): Storage {
 
     removeFromList(listId, articleId) {
       db.prepare("DELETE FROM list_items WHERE list_id = ? AND article_id = ?").run(listId, articleId);
+    },
+
+    setListProgress(listId, articleId, seconds) {
+      db.prepare("UPDATE lists SET playing_article_id = ?, playing_seconds = ? WHERE id = ?").run(articleId, seconds, listId);
     },
 
     listListArticles(listId, limit): Article[] {

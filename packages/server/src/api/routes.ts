@@ -294,6 +294,16 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     return reply.code(204).send();
   });
 
+  // Played through: the article is read too, and drops off the user's playlists.
+  app.post<{ Params: { id: string }; Body: { played?: unknown } }>("/api/v1/articles/:id/played", async (req, reply) => {
+    const uid = userId();
+    if (!storage.getArticle(uid, req.params.id)) {
+      return reply.code(404).send({ error: { code: "not_found", message: "article not found" } });
+    }
+    storage.setPlayed(uid, req.params.id, req.body?.played !== false);
+    return reply.code(204).send();
+  });
+
   app.post<{ Params: { id: string }; Body: SnoozeBody }>("/api/v1/articles/:id/snooze", async (req, reply) => {
     const uid = userId();
     if (!storage.getArticle(uid, req.params.id)) {
