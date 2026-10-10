@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   Storage, User, Feed, Article, ArticleWithState, ArticleQuery, ArticlePage, FetchState,
-  NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount,
+  NormalizedItem, Ingestor, IngestorPatch, CategoryCount, SavedList, SavedListWithCount, ListRule,
   Credential, CredentialSecret,
 } from "./types.js";
 import { decodeHtmlEntities, looksLikeHtml, plainTextToHtml, sanitizeHtml, type ParsedArticle } from "@reader/core";
@@ -162,12 +162,46 @@ export function createSqliteStorage(path: string): Storage {
     };
   }
 
+  /** The joins and WHERE terms an article query selects by, cursor excluded. */
+  function articleFilter(q: ArticleQuery): { joins: string; clauses: string[]; params: unknown[] } {
+    const clauses = ["f.user_id = ?"];
+    const params: unknown[] = [q.userId, q.userId];
+    if (q.feedId) { clauses.push("a.feed_id = ?"); params.push(q.feedId); }
+    if (q.feedIds) {
+      clauses.push(`a.feed_id IN (${q.feedIds.map(() => "?").join(", ")})`);
+      params.push(...q.feedIds);
+    }
+    if (q.feedCategory) { clauses.push("f.category = ?"); params.push(q.feedCategory); }
+    if (q.feedKind) { clauses.push(`${FEED_KIND_SQL} = ?`); params.push(q.feedKind); }
+    if (q.listId) { clauses.push("li.list_id = ?"); params.push(q.listId); }
+    if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
+    if (!q.includeSnoozed) {
+      clauses.push("(ua.snoozed_until IS NULL OR ua.snoozed_until <= ?)");
+      params.push(new Date().toISOString());
+    }
+    if (q.category) {
+      clauses.push("EXISTS (SELECT 1 FROM json_each(a.categories) je WHERE je.value = ?)");
+      params.push(q.category);
+    }
+    if (q.media) clauses.push(MEDIA_FILTER_SQL[q.media]);
+    if (q.maxAgeDays !== undefined) {
+      clauses.push("a.published_at >= ?");
+      params.push(new Date(Date.now() - q.maxAgeDays * 86_400_000).toISOString());
+    }
+    const joins = `
+        JOIN feeds f ON f.id = a.feed_id
+        ${q.listId ? "JOIN list_items li ON li.article_id = a.id" : ""}
+        LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?`;
+    return { joins, clauses, params };
+  }
+
   function rowToList(r: Record<string, unknown>): SavedList {
     return {
       id: r.id as string, userId: r.user_id as string,
       title: r.title as string,
       visibility: r.visibility as SavedList["visibility"],
       token: r.token as string,
+      rule: r.rule ? JSON.parse(r.rule as string) as ListRule : null,
       createdAt: r.created_at as string,
     };
   }
@@ -360,44 +394,30 @@ export function createSqliteStorage(path: string): Storage {
     },
 
     listArticlePage(q: ArticleQuery): ArticlePage {
+      const list = q.listId ? this.getList(q.listId) : null;
+      if (list?.rule) {
+        // A dynamic list has no members: its rule is the query.
+        const { listId: _listId, ...rest } = q;
+        return this.listArticlePage({ ...rest, ...list.rule, order: list.rule.order ?? "newest" });
+      }
       const includeContent = q.includeContent !== false;
-      const order = q.order ?? "newest";
-      const clauses = ["f.user_id = ?"];
-      const params: unknown[] = [q.userId];
-      if (q.feedId) { clauses.push("a.feed_id = ?"); params.push(q.feedId); }
-      if (q.feedIds) {
-        clauses.push(`a.feed_id IN (${q.feedIds.map(() => "?").join(", ")})`);
-        params.push(...q.feedIds);
-      }
-      if (q.feedCategory) { clauses.push("f.category = ?"); params.push(q.feedCategory); }
-      if (q.feedKind) { clauses.push(`${FEED_KIND_SQL} = ?`); params.push(q.feedKind); }
-      if (q.listId) { clauses.push("li.list_id = ?"); params.push(q.listId); }
-      if (q.unreadOnly) { clauses.push("ua.read_at IS NULL"); }
-      if (!q.includeSnoozed) {
-        clauses.push("(ua.snoozed_until IS NULL OR ua.snoozed_until <= ?)");
-        params.push(new Date().toISOString());
-      }
-      if (q.category) {
-        clauses.push("EXISTS (SELECT 1 FROM json_each(a.categories) je WHERE je.value = ?)");
-        params.push(q.category);
-      }
-      if (q.media) clauses.push(MEDIA_FILTER_SQL[q.media]);
-      if (q.maxAgeDays !== undefined) {
-        clauses.push("a.published_at >= ?");
-        params.push(new Date(Date.now() - q.maxAgeDays * 86_400_000).toISOString());
-      }
-      // Keyset cursor over (published_at, id): the id half keeps articles that
-      // share the boundary timestamp from being skipped between pages. The id
-      // comparison follows the ORDER BY tiebreak (ascending within a
-      // timestamp), so continuation means id > cursor id.
-      const past = order === "oldest" ? ">" : "<";
+      const order = q.order ?? (q.listId ? "position" : "newest");
+      if (order === "position" && !q.listId) throw new Error("position order needs a manual list");
+      const { joins, clauses, params } = articleFilter(q);
+      // Keyset cursor over (sort key, id): the id half keeps articles that
+      // share the boundary value from being skipped between pages. The id
+      // comparison follows the ORDER BY tiebreak (ascending within a key), so
+      // continuation means id > cursor id.
+      const sortKey = order === "position" ? "li.position" : "a.published_at";
+      const past = order === "newest" ? "<" : ">";
       if (q.before) {
+        const before = order === "position" ? Number(q.before) : q.before;
         if (q.beforeId) {
-          clauses.push(`(a.published_at ${past} ? OR (a.published_at = ? AND a.id > ?))`);
-          params.push(q.before, q.before, q.beforeId);
+          clauses.push(`(${sortKey} ${past} ? OR (${sortKey} = ? AND a.id > ?))`);
+          params.push(before, before, q.beforeId);
         } else {
-          clauses.push(`a.published_at ${past} ?`);
-          params.push(q.before);
+          clauses.push(`${sortKey} ${past} ?`);
+          params.push(before);
         }
       }
       params.push(q.limit);
@@ -405,28 +425,29 @@ export function createSqliteStorage(path: string): Storage {
         ? "a.*, f.site_url AS feed_site_url, f.url AS feed_url"
         : `a.id, a.feed_id, a.guid, a.url, a.title, a.author, a.published_at,
            NULL AS content_html, NULL AS summary, a.image_url, a.categories, a.media_url, a.media_type, a.fetched_at`;
-      // Ordering must stay aligned with the keyset cursor above:
-      // (published_at, id) both directions included, so no page boundary can
-      // skip or repeat a row. fetched_at is deliberately not a tiebreak — it
-      // changes on refresh and would corrupt the cursor position.
+      // Ordering must stay aligned with the keyset cursor above: (sort key,
+      // id) both directions included, so no page boundary can skip or repeat
+      // a row. fetched_at is deliberately not a tiebreak — it changes on
+      // refresh and would corrupt the cursor position.
+      const orderBy = order === "position"
+        ? "li.position, a.id"
+        : `a.published_at IS NULL, a.published_at ${order === "oldest" ? "ASC" : "DESC"}, a.id`;
       const rows = db.prepare(`
-        SELECT ${articleColumns}, ua.read_at, ua.snoozed_until
-        FROM articles a
-        JOIN feeds f ON f.id = a.feed_id
-        ${q.listId ? "JOIN list_items li ON li.article_id = a.id" : ""}
-        LEFT JOIN user_articles ua ON ua.article_id = a.id AND ua.user_id = ?
+        SELECT ${articleColumns}, ua.read_at, ua.snoozed_until${order === "position" ? ", li.position AS list_position" : ""}
+        FROM articles a ${joins}
         WHERE ${clauses.join(" AND ")}
-        ORDER BY a.published_at IS NULL, a.published_at ${order === "oldest" ? "ASC" : "DESC"}, a.id
+        ORDER BY ${orderBy}
         LIMIT ?
-      `).all(q.userId, ...params) as Record<string, unknown>[];
+      `).all(...params) as Record<string, unknown>[];
       const articles = rows.map((r) => ({
         ...rowToArticle(r, includeContent),
         readAt: (r.read_at as string) ?? null,
         snoozedUntil: (r.snoozed_until as string) ?? null,
       }));
       // Full page = assume more exist; the cursor is the last row's keyset position.
-      const last = articles.length === q.limit ? articles[articles.length - 1] : undefined;
-      return { articles, nextCursor: last?.publishedAt ? { before: last.publishedAt, beforeId: last.id } : null };
+      const last = rows.length === q.limit ? rows[rows.length - 1] : undefined;
+      const before = last && (order === "position" ? String(last.list_position) : last.published_at as string | null);
+      return { articles, nextCursor: last && before ? { before, beforeId: last.id as string } : null };
     },
 
     listCategories(userId, feedId): CategoryCount[] {
@@ -512,10 +533,23 @@ export function createSqliteStorage(path: string): Storage {
     createList(userId, input): SavedList {
       const id = randomUUID();
       const token = randomUUID();
-      db.prepare(`INSERT INTO lists (id, user_id, title, visibility, token, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(id, userId, input.title, input.visibility, token, new Date().toISOString());
+      db.prepare(`INSERT INTO lists (id, user_id, title, visibility, token, rule, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, userId, input.title, input.visibility, token, input.rule ? JSON.stringify(input.rule) : null, new Date().toISOString());
       return this.getList(id)!;
+    },
+
+    updateList(id, patch): SavedList {
+      db.prepare(`
+        UPDATE lists SET
+          title = COALESCE(?, title),
+          visibility = COALESCE(?, visibility),
+          rule = COALESCE(?, rule)
+        WHERE id = ?
+      `).run(patch.title ?? null, patch.visibility ?? null, patch.rule ? JSON.stringify(patch.rule) : null, id);
+      const updated = this.getList(id);
+      if (!updated) throw new Error("list not found: " + id);
+      return updated;
     },
 
     listLists(userId): SavedListWithCount[] {
@@ -527,7 +561,15 @@ export function createSqliteStorage(path: string): Storage {
         GROUP BY l.id
         ORDER BY l.created_at
       `).all(userId) as Record<string, unknown>[];
-      return rows.map((r) => ({ ...rowToList(r), itemCount: r.item_count as number }));
+      return rows.map((r) => {
+        const list = rowToList(r);
+        if (!list.rule) return { ...list, itemCount: r.item_count as number };
+        // A dynamic list has no rows to count; count what its rule matches now.
+        const { joins, clauses, params } = articleFilter({ userId, limit: 0, ...list.rule });
+        const matched = db.prepare(`SELECT COUNT(*) AS n FROM articles a ${joins} WHERE ${clauses.join(" AND ")}`)
+          .get(...params) as { n: number };
+        return { ...list, itemCount: matched.n };
+      });
     },
 
     getList(id): SavedList | null {
@@ -544,10 +586,23 @@ export function createSqliteStorage(path: string): Storage {
 
     addToList(listId, articleId) {
       db.prepare(`
-        INSERT INTO list_items (list_id, article_id, added_at)
-        VALUES (?, ?, ?)
+        INSERT INTO list_items (list_id, article_id, added_at, position)
+        VALUES (?, ?, ?, (SELECT COALESCE(MAX(position) + 1, 0) FROM list_items WHERE list_id = ?))
         ON CONFLICT (list_id, article_id) DO NOTHING
-      `).run(listId, articleId, new Date().toISOString());
+      `).run(listId, articleId, new Date().toISOString(), listId);
+    },
+
+    setListItems(listId, articleIds) {
+      const savedAt = new Map((db.prepare("SELECT article_id, added_at FROM list_items WHERE list_id = ?")
+        .all(listId) as { article_id: string; added_at: string }[]).map((r) => [r.article_id, r.added_at]));
+      const clear = db.prepare("DELETE FROM list_items WHERE list_id = ?");
+      const insert = db.prepare("INSERT INTO list_items (list_id, article_id, added_at, position) VALUES (?, ?, ?, ?)");
+      const now = new Date().toISOString();
+      db.transaction(() => {
+        clear.run(listId);
+        // An article kept across the replacement keeps the time it was saved.
+        [...new Set(articleIds)].forEach((articleId, position) => insert.run(listId, articleId, savedAt.get(articleId) ?? now, position));
+      })();
     },
 
     removeFromList(listId, articleId) {
@@ -555,6 +610,8 @@ export function createSqliteStorage(path: string): Storage {
     },
 
     listListArticles(listId, limit): Article[] {
+      const list = this.getList(listId);
+      if (list?.rule) return this.listArticles({ userId: list.userId, listId, limit, includeSnoozed: true });
       const rows = db.prepare(`
         SELECT a.*, f.site_url AS feed_site_url, f.url AS feed_url
         FROM list_items li

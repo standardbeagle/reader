@@ -10,7 +10,8 @@ export const FEED_KINDS: readonly FeedKind[] = ["article", "podcast", "video", "
 export type MediaFilter = "any" | "audio" | "video";
 export const MEDIA_FILTERS: readonly MediaFilter[] = ["any", "audio", "video"];
 
-export type ArticleOrder = "newest" | "oldest";
+/** `position` is a manual list's own order and only applies with a listId. */
+export type ArticleOrder = "newest" | "oldest" | "position";
 
 export interface Feed {
   id: string;
@@ -96,7 +97,7 @@ export interface ArticleWithState extends Article {
 export interface ArticleQuery {
   userId: string;
   feedId?: string;
-  /** Restrict to articles saved in this list. */
+  /** Restrict to this list: its saved articles, or whatever its rule matches. */
   listId?: string;
   /** Restrict to these feeds. */
   feedIds?: string[];
@@ -108,9 +109,9 @@ export interface ArticleQuery {
   media?: MediaFilter;
   /** Only articles published within this many days. */
   maxAgeDays?: number;
-  /** Defaults to newest. */
+  /** Defaults to a manual list's position, a dynamic list's rule, else newest. */
   order?: ArticleOrder;
-  /** Keyset cursor: the last row's published_at. */
+  /** Keyset cursor: the last row's published_at, or its list position. */
   before?: string;
   /** Second half of the keyset cursor; prevents skipping articles that share
    *  the boundary value. */
@@ -132,6 +133,19 @@ export interface ArticlePage {
 
 export type ListVisibility = "public" | "private";
 
+/** What a dynamic list contains: every article matching all the set fields. */
+export interface ListRule {
+  feedIds?: string[];
+  feedCategory?: string;
+  feedKind?: FeedKind;
+  /** An article subject tag. */
+  category?: string;
+  media?: MediaFilter;
+  unreadOnly?: boolean;
+  maxAgeDays?: number;
+  order?: "newest" | "oldest";
+}
+
 export interface SavedList {
   id: string;
   userId: string;
@@ -139,6 +153,8 @@ export interface SavedList {
   visibility: ListVisibility;
   /** Capability token for the public RSS URL; meaningless for private lists. */
   token: string;
+  /** Null for a manual list, whose articles are saved one by one and ordered. */
+  rule: ListRule | null;
   createdAt: string;
 }
 
@@ -227,14 +243,19 @@ export interface Storage {
   setSnooze(userId: string, articleId: string, until: Date | null): void;
   markAllRead(userId: string, feedId: string): void;
   unreadCounts(userId: string): Record<string, number>;
-  createList(userId: string, input: { title: string; visibility: ListVisibility }): SavedList;
+  createList(userId: string, input: { title: string; visibility: ListVisibility; rule?: ListRule | null }): SavedList;
+  /** A rule can replace a dynamic list's rule; it never turns a manual list dynamic. */
+  updateList(id: string, patch: { title?: string; visibility?: ListVisibility; rule?: ListRule }): SavedList;
   listLists(userId: string): SavedListWithCount[];
   getList(id: string): SavedList | null;
   getListByToken(token: string): SavedList | null;
   deleteList(id: string): void;
+  /** Appends to the end of a manual list. */
   addToList(listId: string, articleId: string): void;
+  /** Replaces a manual list's articles with exactly these, in this order. */
+  setListItems(listId: string, articleIds: string[]): void;
   removeFromList(listId: string, articleId: string): void;
-  /** Articles in a list, newest saved first, content included (for RSS output). */
+  /** A list's articles with content, for RSS output: newest saved first, or a dynamic list's own order. */
   listListArticles(listId: string, limit: number): Article[];
   createIngestor(userId: string, input: { kind: IngestorKind; config: Record<string, unknown>; feedId: string }): Ingestor;
   listIngestors(userId: string): Ingestor[];

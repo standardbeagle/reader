@@ -16,7 +16,7 @@ interface ArticleQuery {
 }
 
 const MAX_FEED_CATEGORY = 60;
-const ARTICLE_ORDERS: readonly ArticleOrder[] = ["newest", "oldest"];
+const ARTICLE_ORDERS: readonly ArticleOrder[] = ["newest", "oldest", "position"];
 
 /** The value if it is one of `allowed`, undefined if absent, null if it is anything else. */
 function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined | null {
@@ -253,8 +253,10 @@ export function registerRoutes(app: FastifyInstance, storage: Storage, poller: P
     const feedKind = oneOf(req.query.feed_kind, FEED_KINDS);
     const media = oneOf(req.query.media, MEDIA_FILTERS);
     const order = oneOf(req.query.order, ARTICLE_ORDERS);
-    if (feedKind === null || media === null || order === null) {
-      return reply.code(400).send({ error: { code: "invalid_filter", message: `feed_kind is one of ${FEED_KINDS.join(", ")}; media is one of ${MEDIA_FILTERS.join(", ")}; order is one of ${ARTICLE_ORDERS.join(", ")}` } });
+    // Position is a manual list's own order; anywhere else there is nothing to sort by.
+    const positionOutsideList = order === "position" && !storage.getList(req.query.list_id ?? "");
+    if (feedKind === null || media === null || order === null || positionOutsideList) {
+      return reply.code(400).send({ error: { code: "invalid_filter", message: `feed_kind is one of ${FEED_KINDS.join(", ")}; media is one of ${MEDIA_FILTERS.join(", ")}; order is one of ${ARTICLE_ORDERS.join(", ")} (position needs list_id)` } });
     }
     return storage.listArticlePage({
       userId: userId(),
