@@ -10,6 +10,10 @@ description: Notable changes to reader, newest first.
   `q`, play it now with `p`, or press ▶ on the article list to queue
   everything playable in the stream on show. The queue and your place in it
   survive a reload.
+- **Interactive pages work in the Embedded page tab** — the framed page now
+  keeps its own origin, which module scripts need (Astro islands, most modern
+  sites). In the Reader tab an interactive Astro island is replaced by a note
+  that opens the Embedded page, instead of the stray labels it used to leave.
 - **Player settings are remembered** — playback speed, volume, mute and the
   video size carry over to the next item and the next visit, in this browser.
 - **Feed categories and types** — file feeds under your own categories (OPML

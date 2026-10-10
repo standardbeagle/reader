@@ -4,7 +4,7 @@ import { EpisodePlayer } from "./EpisodePlayer";
 import { MediaCard } from "./MediaCard";
 import { youtubeVideo } from "./youtube";
 import { api, type Article, type SavedList } from "./api";
-import { safeUrl } from "./urls";
+import { embeddedPageSandbox, safeUrl } from "./urls";
 import { SaveToListDialog } from "./ListDialogs";
 import { useListShortcuts } from "./listShortcuts";
 
@@ -265,6 +265,7 @@ function ArticleSnapshot({ a }: { a: Article }) {
   );
 }
 
+
 function ReaderBody(props: {
   a: Article;
   view: "reader" | "embedded";
@@ -333,13 +334,23 @@ function ReaderBody(props: {
             title={`Original page: ${a.title}`}
             loading="lazy"
             referrerPolicy="strict-origin-when-cross-origin"
-            sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts"
+            sandbox={embeddedPageSandbox(href)}
             allow="fullscreen; picture-in-picture"
           />
           <p className="embedded-content-actions"><a href={href} target="_blank" rel="noopener noreferrer">Open original in a new tab ↗</a></p>
         </section>
       ) : (
-        <div id="reader-content-panel" role={href ? "tabpanel" : undefined} aria-labelledby={href ? "reader-tab" : undefined}>
+        <div
+          id="reader-content-panel"
+          role={href ? "tabpanel" : undefined}
+          aria-labelledby={href ? "reader-tab" : undefined}
+          // The note left where an interactive figure was links to the original; here the embedded page is one tab away.
+          onClick={(event) => {
+            if (!props.showTabs || blockedReason || !(event.target as Element).closest(".interactive-figure a")) return;
+            event.preventDefault();
+            setView("embedded");
+          }}
+        >
           <ArticleContent a={a} htmlBody={htmlBody} textBody={textBody} />
         </div>
       )}

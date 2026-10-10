@@ -542,6 +542,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .reader .article-content .katex-html { white-space: nowrap; }
 .content-fallback p { margin-top: 0; }
 .content-note { color: var(--text-dim); font-size: var(--fs-sm); }
+.article-content .interactive-figure { padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--radius); color: var(--text-dim); font-size: var(--fs-sm); }
 .reader-tabs { display: flex; gap: 2px; margin: var(--space-5) 0 var(--space-4); border-bottom: 1px solid var(--border); }
 .reader-tab {
   min-height: 38px; padding: 7px 12px; border: 0; border-bottom: 2px solid transparent;

@@ -25,7 +25,11 @@ filter. Chips are per-feed — saved lists have their own membership instead.
 ## The reader pane
 
 - **Reader / Embedded page** tabs: sanitized article content, or the original
-  page in a sandboxed iframe when the feed only supplied a summary. Many
+  page in a sandboxed iframe. The frame cannot navigate reader away or reach
+  into it, but the page runs as itself (with its own origin, scripts and
+  storage) so interactive pages work. An interactive figure cannot run in the
+  Reader tab, where scripts are removed; a note stands in for it, and clicking
+  the note opens the Embedded page. Many
   sites refuse to be shown inside another site (`X-Frame-Options` or a CSP
   `frame-ancestors` rule). reader checks the page's headers and disables the
   tab for those; hover it to see why, and use the title link to open the
